@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Field, Button } from '../components/ui'
+import { BRAND } from '../lib/brand'
 
 export default function Login() {
   const { signIn } = useAuth()
@@ -34,7 +35,7 @@ export default function Login() {
     <div className="auth">
       <aside className="auth-brand">
         <div className="auth-brand-inner">
-          <span className="brand-mark auth-brand-mark">Oakline</span>
+          <span className="brand-mark auth-brand-mark">{BRAND.name}</span>
           <p className="auth-brand-line">Resident Portal</p>
           <p className="auth-brand-sub">
             Rent, maintenance, and your lease — in one place.
@@ -45,7 +46,7 @@ export default function Login() {
       <div className="auth-form-wrap">
         <div className="auth-form">
           <h1 className="auth-title">Sign in</h1>
-          <p className="auth-lead">Welcome back to Oakline Residences.</p>
+          <p className="auth-lead">Welcome back to {BRAND.name}.</p>
 
           {error && <div className="auth-error" role="alert">{error}</div>}
 
@@ -78,7 +79,7 @@ export default function Login() {
           </Button>
 
           <p className="auth-alt">
-            New to Oakline? <Link to="/apply">Create account</Link>
+            New to {BRAND.name}? <Link to="/apply">Create account</Link>
           </p>
         </div>
       </div>

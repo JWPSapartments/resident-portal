@@ -1,2 +1,0 @@
-# resident-portal
-Resident Portal

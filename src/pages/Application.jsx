@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { BRAND } from '../lib/brand'
 
 // Public stub (no Layout) — full multi-step application form lands in T8.
 export default function Application() {
@@ -6,7 +7,7 @@ export default function Application() {
     <div className="auth">
       <div className="auth-form-wrap">
         <div className="auth-form">
-          <h1 className="auth-title">Apply to Oakline</h1>
+          <h1 className="auth-title">Apply to {BRAND.name}</h1>
           <p className="auth-lead">Application form — built in T8.</p>
           <p className="auth-alt">
             Already have an account? <Link to="/login">Sign in</Link>

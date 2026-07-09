@@ -1,12 +1,13 @@
 import { useAuth } from '../context/AuthContext'
 import NotificationBell from './NotificationBell'
+import { BRAND } from '../lib/brand'
 
 export default function Topbar() {
   const { profile } = useAuth()
 
   const unit = profile?.unit_label
   const room = profile?.room_label
-  const placeParts = ['Oakline Residences']
+  const placeParts = [BRAND.name]
   if (unit) placeParts.push(unit)
   if (room) placeParts.push(room)
 

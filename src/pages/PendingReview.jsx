@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui'
+import { BRAND } from '../lib/brand'
 
 export default function PendingReview() {
   const { user, signOut } = useAuth()
@@ -38,7 +39,7 @@ export default function PendingReview() {
   return (
     <div className="review">
       <div className="review-card">
-        <span className="brand-mark review-brand">Oakline</span>
+        <span className="brand-mark review-brand">{BRAND.name}</span>
 
         {loading ? (
           <div className="spinner review-spinner" role="status" aria-label="Loading" />
@@ -63,7 +64,7 @@ export default function PendingReview() {
           <>
             <h1>Your application is under review</h1>
             <p className="review-lead">
-              Thanks for applying to Oakline Residences. The leasing team is
+              Thanks for applying to {BRAND.name}. The leasing team is
               reviewing your application — you&apos;ll get an email when there&apos;s
               a decision.
             </p>

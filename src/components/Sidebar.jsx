@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { BRAND } from '../lib/brand'
 
 const RESIDENT_NAV = [
   { to: '/', label: 'Home', end: true },
@@ -21,8 +22,8 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
-        <span className="brand-mark">Oakline</span>
-        <span className="brand-sub">Oakline Residences · Champaign</span>
+        <span className="brand-mark">{BRAND.name}</span>
+        {BRAND.tagline && <span className="brand-sub">{BRAND.tagline}</span>}
       </div>
 
       <nav className="sidebar-nav" aria-label="Primary">
