@@ -115,51 +115,61 @@ export default function Home() {
   const paidTotal = selectedInvoice ? sumBy(selectedInvoice.payments, 'amount') : 0
   const remaining = chargeTotal - paidTotal
 
-  // ── Rent-cycle geometry (month is the axis: day 1 = 0%, month end = 100%) ──
+  // ── Rent status (date-based; replaces the visual rent-cycle strip) ─────────
   const today = new Date()
-  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
-  const todayDate = today.getDate()
-  const pct = (day) => ((day - 1) / (daysInMonth - 1)) * 100
-  const duePct = pct(5)
-  const todayPct = pct(todayDate)
-  const windowPct = duePct
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const parseLocalDate = (s) => {
+    if (!s) return null
+    const [y, m, d] = s.split('-').map(Number)
+    return new Date(y, m - 1, d)
+  }
+  const dueDateObj = selectedInvoice ? parseLocalDate(selectedInvoice.due_date) : null
+  const daysToDue = dueDateObj
+    ? Math.round((dueDateObj - startOfToday) / 86400000)
+    : null
+  const currentMonthLabel = today.toLocaleString('en-US', { month: 'long' })
+  const rentMonthLabel = selectedInvoice
+    ? monthNameFromDate(selectedInvoice.period_month)
+    : currentMonthLabel
 
-  const fillPct = (() => {
-    if (!selectedInvoice) return 0
-    if (selectedInvoice.status === 'paid') return 100
-    if (selectedInvoice.status === 'partial') {
-      return chargeTotal > 0 ? Math.min(100, (paidTotal / chargeTotal) * 100) : 0
-    }
-    return 0 // due / overdue
-  })()
-
-  const isOverdue = selectedInvoice
-    ? selectedInvoice.status === 'overdue' ||
-      (selectedInvoice.status !== 'paid' && todayDate > 5)
-    : false
-
-  // rc-sub status line, derived from selectedInvoice only.
-  const rcSub = (() => {
+  // Headline + colored note for the rent card, derived from selectedInvoice only.
+  const rentStatus = (() => {
     if (!selectedInvoice) {
-      return { color: 'var(--ink-soft)', text: 'No open balance' }
+      return { headline: 'No open balance', note: '', color: 'var(--ink-soft)' }
     }
     const s = selectedInvoice.status
     if (s === 'paid') {
+      return { headline: `Paid for ${rentMonthLabel}`, note: '', color: 'var(--success)' }
+    }
+    const dueLabel = `Due ${formatDate(selectedInvoice.due_date)}`
+    if (s === 'overdue' || (daysToDue !== null && daysToDue < 0)) {
+      const overdueBy = daysToDue !== null ? Math.abs(daysToDue) : null
       return {
-        color: 'var(--success)',
-        text: `Paid for ${monthNameFromDate(selectedInvoice.period_month)}`,
+        headline: dueLabel,
+        note:
+          overdueBy !== null
+            ? `Past due by ${overdueBy} day${overdueBy === 1 ? '' : 's'} · late fee applies`
+            : 'Payment past due · late fee applies',
+        color: 'var(--danger)',
       }
     }
     if (s === 'partial') {
       return {
+        headline: dueLabel,
+        note: `Partially paid · ${formatCurrency(remaining)} remaining`,
         color: 'var(--accent)',
-        text: `Partially paid · ${formatCurrency(remaining)} remaining`,
       }
     }
-    if (s === 'overdue' || todayDate > 5) {
-      return { color: 'var(--danger)', text: 'Payment past due · late fee applies' }
+    return {
+      headline: dueLabel,
+      note:
+        daysToDue === 0
+          ? 'Due today'
+          : daysToDue > 0
+          ? `Due in ${daysToDue} day${daysToDue === 1 ? '' : 's'}`
+          : 'Rent due by the 5th',
+      color: 'var(--accent)',
     }
-    return { color: 'var(--accent)', text: 'Rent due by the 5th' }
   })()
 
   const firstName = (profile?.full_name || '').split(' ')[0] || 'there'
@@ -204,31 +214,19 @@ export default function Home() {
         subtitle={`Unit ${profile?.unit_label} · Room ${profile?.room_label}`}
       />
 
-      {/* Rent-cycle strip — signature element, pinned to the top */}
+      {/* Rent status — date-based summary, pinned to the top */}
       <div style={{ marginBottom: '20px' }}>
         <Card>
           <div className="card-pad">
-            <div className="rent-cycle">
-              <div className="rc-head">
-                <span className="rc-title">Rent cycle</span>
-                <span className="rc-sub" style={{ color: rcSub.color }}>
-                  {rcSub.text}
-                </span>
-              </div>
-              <div className="rc-track" style={{ '--rc-window': `${windowPct}%` }}>
-                <div
-                  className={`rc-fill${isOverdue ? ' is-overdue' : ''}`}
-                  style={{ width: `${fillPct}%` }}
-                />
-                <div className="rc-marker rc-due" style={{ left: `${duePct}%` }} />
-                <div className="rc-today" style={{ left: `${todayPct}%` }} />
-              </div>
-              <div className="rc-scale">
-                <span className="rc-tick">1</span>
-                <span className="rc-tick">5</span>
-                <span className="rc-tick">{daysInMonth}</span>
-              </div>
+            <div style={{ color: 'var(--ink-faint)', marginBottom: '4px' }}>
+              Rent · {rentMonthLabel}
             </div>
+            <div style={{ fontSize: '1.25rem' }}>{rentStatus.headline}</div>
+            {rentStatus.note ? (
+              <div style={{ color: rentStatus.color, marginTop: '4px' }}>
+                {rentStatus.note}
+              </div>
+            ) : null}
           </div>
         </Card>
       </div>
