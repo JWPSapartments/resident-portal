@@ -53,7 +53,6 @@ export default function AccountDetails() {
 
   // Preferences
   const [notifyEmail, setNotifyEmail] = useState(profile?.notify_email ?? false)
-  const [notifyText, setNotifyText] = useState(profile?.notify_text ?? false)
   const [payMethod, setPayMethod] = useState(profile?.payment_method_label ?? '')
   const [savingPrefs, setSavingPrefs] = useState(false)
   const [prefsMsg, setPrefsMsg] = useState(null)
@@ -77,7 +76,6 @@ export default function AccountDetails() {
 
   const prefsDirty =
     notifyEmail !== (profile.notify_email ?? false) ||
-    notifyText !== (profile.notify_text ?? false) ||
     payMethod !== (profile.payment_method_label ?? '')
 
   async function saveProfile() {
@@ -125,7 +123,6 @@ export default function AccountDetails() {
       .from('profiles')
       .update({
         notify_email: notifyEmail,
-        notify_text: notifyText,
         payment_method_label: payMethod,
       })
       .eq('id', profile.id)
@@ -313,7 +310,6 @@ export default function AccountDetails() {
                       alignItems: 'center',
                       gap: 10,
                       cursor: 'pointer',
-                      marginBottom: 12,
                     }}
                   >
                     <input
@@ -323,23 +319,6 @@ export default function AccountDetails() {
                     />
                     <span style={{ fontSize: 15, color: 'var(--ink)' }}>
                       Email notifications
-                    </span>
-                  </label>
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={notifyText}
-                      onChange={(e) => setNotifyText(e.target.checked)}
-                    />
-                    <span style={{ fontSize: 15, color: 'var(--ink)' }}>
-                      Text notifications
                     </span>
                   </label>
                 </div>
