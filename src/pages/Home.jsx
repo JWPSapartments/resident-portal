@@ -172,7 +172,8 @@ export default function Home() {
     }
   })()
 
-  const firstName = (profile?.full_name || '').split(' ')[0] || 'there'
+  const firstName = (profile?.full_name || '').split(' ')[0]
+  const greeting = firstName ? `Welcome back, ${firstName}` : 'Welcome back'
 
   // ── Loading / error guards (never white-screen) ───────────────────────────
   if (loading) {
@@ -210,8 +211,8 @@ export default function Home() {
   return (
     <>
       <PageHead
-        title={`Welcome back, ${firstName}`}
-        subtitle={`Unit ${profile?.unit_label} · Room ${profile?.room_label}`}
+        title={greeting}
+        subtitle={`${profile?.unit_label} · Room ${profile?.room_label}`}
       />
 
       {/* Rent status — date-based summary, pinned to the top */}
