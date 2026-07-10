@@ -537,4 +537,614 @@ export default function Application() {
                   />
                 </Field>
 
-                <div
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Date of birth" htmlFor="app-dob">
+                      <input
+                        id="app-dob"
+                        className="input"
+                        type="date"
+                        value={dateOfBirth}
+                        onChange={(e) => setDateOfBirth(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Phone" htmlFor="app-phone">
+                      <input
+                        id="app-phone"
+                        className="input"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                <Field label="Current address" htmlFor="app-addr">
+                  <textarea
+                    id="app-addr"
+                    className="textarea"
+                    value={currentAddress}
+                    onChange={(e) => setCurrentAddress(e.target.value)}
+                  />
+                </Field>
+
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Desired unit" htmlFor="app-unit">
+                      <input
+                        id="app-unit"
+                        className="input"
+                        value={desiredUnit}
+                        onChange={(e) => setDesiredUnit(e.target.value)}
+                        placeholder="Unit 2"
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Room" htmlFor="app-room">
+                      <select
+                        id="app-room"
+                        className="select"
+                        value={desiredRoom}
+                        onChange={(e) => setDesiredRoom(e.target.value)}
+                      >
+                        <option value="">Select a room</option>
+                        {ROOM_OPTIONS.map((r) => (
+                          <option key={r} value={r}>
+                            Room {r}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+                </div>
+
+                <SensitiveBlock>
+                  Social Security / ITIN and ID verification are collected securely during the
+                  screening step and are not stored in this portal.
+                </SensitiveBlock>
+              </div>
+            )}
+
+            {/* STEP 2 */}
+            {step === 2 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <Field label="Current address" htmlFor="res-addr">
+                  <input
+                    id="res-addr"
+                    className="input"
+                    value={residency.current_address}
+                    onChange={(e) => updateResidency('current_address', e.target.value)}
+                  />
+                </Field>
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Current landlord name" htmlFor="res-ll-name">
+                      <input
+                        id="res-ll-name"
+                        className="input"
+                        value={residency.landlord_name}
+                        onChange={(e) => updateResidency('landlord_name', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Landlord phone" htmlFor="res-ll-phone">
+                      <input
+                        id="res-ll-phone"
+                        className="input"
+                        value={residency.landlord_phone}
+                        onChange={(e) => updateResidency('landlord_phone', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Monthly rent" htmlFor="res-rent">
+                      <input
+                        id="res-rent"
+                        className="input"
+                        value={residency.monthly_rent}
+                        onChange={(e) => updateResidency('monthly_rent', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Move-in date" htmlFor="res-in">
+                      <input
+                        id="res-in"
+                        className="input"
+                        type="date"
+                        value={residency.move_in}
+                        onChange={(e) => updateResidency('move_in', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Move-out date" htmlFor="res-out">
+                      <input
+                        id="res-out"
+                        className="input"
+                        type="date"
+                        value={residency.move_out}
+                        onChange={(e) => updateResidency('move_out', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+                <Field label="Reason for leaving" htmlFor="res-reason">
+                  <textarea
+                    id="res-reason"
+                    className="textarea"
+                    value={residency.reason_for_leaving}
+                    onChange={(e) => updateResidency('reason_for_leaving', e.target.value)}
+                  />
+                </Field>
+                <Field label="Prior address (optional)" htmlFor="res-prior">
+                  <textarea
+                    id="res-prior"
+                    className="textarea"
+                    value={residency.prior_address}
+                    onChange={(e) => updateResidency('prior_address', e.target.value)}
+                    placeholder="Only if you've lived at your current address less than 1–2 years"
+                  />
+                </Field>
+              </div>
+            )}
+
+            {/* STEP 3 */}
+            {step === 3 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="School name" htmlFor="sch-name">
+                      <input
+                        id="sch-name"
+                        className="input"
+                        value={schoolName}
+                        onChange={(e) => setSchoolName(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Student ID" htmlFor="sch-id">
+                      <input
+                        id="sch-id"
+                        className="input"
+                        value={studentId}
+                        onChange={(e) => setStudentId(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Year / class standing" htmlFor="sch-standing">
+                      <input
+                        id="sch-standing"
+                        className="input"
+                        value={classStanding}
+                        onChange={(e) => setClassStanding(e.target.value)}
+                        placeholder="e.g. Junior"
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Expected graduation" htmlFor="sch-grad">
+                      <input
+                        id="sch-grad"
+                        className="input"
+                        value={expectedGraduation}
+                        onChange={(e) => setExpectedGraduation(e.target.value)}
+                        placeholder="e.g. May 2027"
+                      />
+                    </Field>
+                  </div>
+                </div>
+                <Field label="Enrollment status" htmlFor="sch-status">
+                  <select
+                    id="sch-status"
+                    className="select"
+                    value={enrollmentStatus}
+                    onChange={(e) => setEnrollmentStatus(e.target.value)}
+                  >
+                    <option value="">Select enrollment status</option>
+                    {ENROLLMENT_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Proof of enrollment (optional)" htmlFor="sch-proof">
+                  <input
+                    id="sch-proof"
+                    className="input"
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                  />
+                </Field>
+                {existingProofUrl && !proofFile && (
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                    A proof file is already on record. Choosing a new file will replace it.
+                  </div>
+                )}
+                <div style={{ fontSize: 13, color: 'var(--ink-faint)' }}>
+                  Accepts an image or PDF. This is optional and won't block your submission.
+                </div>
+              </div>
+            )}
+
+            {/* STEP 4 */}
+            {step === 4 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Name" htmlFor="g-name">
+                      <input
+                        id="g-name"
+                        className="input"
+                        value={guarantor.name}
+                        onChange={(e) => updateGuarantor('name', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Relationship to applicant" htmlFor="g-rel">
+                      <input
+                        id="g-rel"
+                        className="input"
+                        value={guarantor.relationship}
+                        onChange={(e) => updateGuarantor('relationship', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+                <Field label="Address" htmlFor="g-addr">
+                  <textarea
+                    id="g-addr"
+                    className="textarea"
+                    value={guarantor.address}
+                    onChange={(e) => updateGuarantor('address', e.target.value)}
+                  />
+                </Field>
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Phone" htmlFor="g-phone">
+                      <input
+                        id="g-phone"
+                        className="input"
+                        value={guarantor.phone}
+                        onChange={(e) => updateGuarantor('phone', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Email" htmlFor="g-email">
+                      <input
+                        id="g-email"
+                        className="input"
+                        type="email"
+                        value={guarantor.email}
+                        onChange={(e) => updateGuarantor('email', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Employer" htmlFor="g-emp">
+                      <input
+                        id="g-emp"
+                        className="input"
+                        value={guarantor.employer}
+                        onChange={(e) => updateGuarantor('employer', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Income" htmlFor="g-inc">
+                      <input
+                        id="g-inc"
+                        className="input"
+                        value={guarantor.income}
+                        onChange={(e) => updateGuarantor('income', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                <SensitiveBlock>
+                  Social Security / ITIN and ID verification are collected securely during the
+                  screening step and are not stored in this portal.
+                </SensitiveBlock>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                    By typing your full name, you acknowledge your intent to guarantee this lease. (A
+                    legally binding e-signature will be collected in the live version.)
+                  </div>
+                  <Field label="Typed-name acknowledgment" htmlFor="g-ack">
+                    <input
+                      id="g-ack"
+                      className="input"
+                      value={guarantor.typed_name_ack}
+                      onChange={(e) => setGuarantorAck(e.target.value)}
+                    />
+                  </Field>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 5 */}
+            {step === 5 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ fontSize: 14, color: 'var(--ink-soft)' }}>
+                  List anyone applying to live in the same unit. Each resident signs their own lease.
+                </div>
+                {coApplicants.length === 0 && (
+                  <div style={{ fontSize: 13, color: 'var(--ink-faint)' }}>
+                    No co-applicants added.
+                  </div>
+                )}
+                {coApplicants.map((c, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      border: '1px solid var(--line)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: 14,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 12,
+                    }}
+                  >
+                    <div style={rowStyle}>
+                      <div style={colStyle}>
+                        <Field label="Full name" htmlFor={`ca-name-${i}`}>
+                          <input
+                            id={`ca-name-${i}`}
+                            className="input"
+                            value={c.full_name}
+                            onChange={(e) => updateCoApplicant(i, 'full_name', e.target.value)}
+                          />
+                        </Field>
+                      </div>
+                      <div style={colStyle}>
+                        <Field label="Email (optional)" htmlFor={`ca-email-${i}`}>
+                          <input
+                            id={`ca-email-${i}`}
+                            className="input"
+                            type="email"
+                            value={c.email}
+                            onChange={(e) => updateCoApplicant(i, 'email', e.target.value)}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                    <Field label="Note (optional)" htmlFor={`ca-note-${i}`}>
+                      <input
+                        id={`ca-note-${i}`}
+                        className="input"
+                        value={c.note}
+                        onChange={(e) => updateCoApplicant(i, 'note', e.target.value)}
+                      />
+                    </Field>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <Button variant="ghost" onClick={() => removeCoApplicant(i)}>
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                <div>
+                  <Button variant="ghost" onClick={addCoApplicant}>
+                    + Add another
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 6 */}
+            {step === 6 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: 'var(--ink)' }}>
+                    Previous landlord
+                  </div>
+                  <div style={rowStyle}>
+                    <div style={colStyle}>
+                      <Field label="Name" htmlFor="pl-name">
+                        <input
+                          id="pl-name"
+                          className="input"
+                          value={prevLandlord.name}
+                          onChange={(e) => setPrevLandlord((p) => ({ ...p, name: e.target.value }))}
+                        />
+                      </Field>
+                    </div>
+                    <div style={colStyle}>
+                      <Field label="Phone" htmlFor="pl-phone">
+                        <input
+                          id="pl-phone"
+                          className="input"
+                          value={prevLandlord.phone}
+                          onChange={(e) => setPrevLandlord((p) => ({ ...p, phone: e.target.value }))}
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: 'var(--ink)' }}>
+                    Personal references
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                    Please provide one or two references who are not family members.
+                  </div>
+                  {personalRefs.map((r, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        border: '1px solid var(--line)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: 14,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 12,
+                      }}
+                    >
+                      <div style={rowStyle}>
+                        <div style={colStyle}>
+                          <Field label="Name" htmlFor={`pr-name-${i}`}>
+                            <input
+                              id={`pr-name-${i}`}
+                              className="input"
+                              value={r.name}
+                              onChange={(e) => updatePersonalRef(i, 'name', e.target.value)}
+                            />
+                          </Field>
+                        </div>
+                        <div style={colStyle}>
+                          <Field label="Phone" htmlFor={`pr-phone-${i}`}>
+                            <input
+                              id={`pr-phone-${i}`}
+                              className="input"
+                              value={r.phone}
+                              onChange={(e) => updatePersonalRef(i, 'phone', e.target.value)}
+                            />
+                          </Field>
+                        </div>
+                        <div style={colStyle}>
+                          <Field label="Relationship" htmlFor={`pr-rel-${i}`}>
+                            <input
+                              id={`pr-rel-${i}`}
+                              className="input"
+                              value={r.relationship}
+                              onChange={(e) => updatePersonalRef(i, 'relationship', e.target.value)}
+                            />
+                          </Field>
+                        </div>
+                      </div>
+                      {personalRefs.length > 1 && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                          <Button variant="ghost" onClick={() => removePersonalRef(i)}>
+                            Remove
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {personalRefs.length < 2 && (
+                    <div>
+                      <Button variant="ghost" onClick={addPersonalRef}>
+                        + Add reference
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: 'var(--ink)' }}>
+                    Screening consent
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                    Authorization is required to process your application. No checks are run in this
+                    preview.
+                  </div>
+                  <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={consentCredit}
+                      onChange={(e) => setConsentCredit(e.target.checked)}
+                      style={{ marginTop: 3 }}
+                    />
+                    <span style={{ color: 'var(--ink)' }}>Authorize a credit check</span>
+                  </label>
+                  <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={consentCriminal}
+                      onChange={(e) => setConsentCriminal(e.target.checked)}
+                      style={{ marginTop: 3 }}
+                    />
+                    <span style={{ color: 'var(--ink)' }}>Authorize a criminal background check</span>
+                  </label>
+                  <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={consentRentalHistory}
+                      onChange={(e) => setConsentRentalHistory(e.target.checked)}
+                      style={{ marginTop: 3 }}
+                    />
+                    <span style={{ color: 'var(--ink)' }}>
+                      Authorize verification of rental / eviction history
+                    </span>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <div
+                style={{
+                  marginTop: 18,
+                  background: 'var(--danger-wash)',
+                  color: 'var(--danger)',
+                  border: '1px solid var(--danger)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '10px 14px',
+                  fontSize: 13,
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            {/* Navigation */}
+            <div
+              style={{
+                marginTop: 24,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+              }}
+            >
+              <div>
+                {step > 1 && (
+                  <Button variant="ghost" onClick={back} disabled={loading}>
+                    Back
+                  </Button>
+                )}
+              </div>
+              <div>
+                {step < 6 ? (
+                  <Button variant="primary" onClick={next}>
+                    Next
+                  </Button>
+                ) : (
+                  <Button variant="primary" onClick={handleSubmit} loading={loading} disabled={loading}>
+                    Submit application
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <div style={{ marginTop: 18, textAlign: 'center', fontSize: 13, color: 'var(--ink-soft)' }}>
+          Already have an account?{' '}
+          <a href="#/login" style={{ color: 'var(--primary)' }}>
+            Sign in
+          </a>
+        </div>
+      </div>
+    </div>
+  )
+}
