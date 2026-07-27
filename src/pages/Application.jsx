@@ -1169,10 +1169,11 @@ export default function Application() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
-                    By printing your full name below, you acknowledge your intent to guarantee this
-                    lease. (A legally binding e-signature will be collected in the live version.)
+                    The guarantor must print their own full name below to acknowledge their intent
+                    to guarantee this lease. (A legally binding e-signature will be collected in the
+                    live version.)
                   </div>
-                  <Field label="Print name for acknowledgment" htmlFor="g-ack">
+                  <Field label="Guarantor's printed name" htmlFor="g-ack">
                     <input
                       id="g-ack"
                       className="input"
