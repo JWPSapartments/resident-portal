@@ -4,12 +4,25 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { PageHead, Card, Field, Button } from '../components/ui'
 
-const GUARANTOR_REQUIRED = true // 客戶未最終定案；true=guarantor 段必填。日後改此一處即可
+const GUARANTOR_REQUIRED = true // 客戶已確認：guarantor 必填
+
+const BUILDING_OPTIONS = [
+  { value: '1240_arthur', label: '1240 W Arthur Ave, Chicago, IL' },
+  { value: '1243_arthur', label: '1243 W Arthur Ave, Chicago, IL' },
+  { value: '6419_wayne', label: '6419 N Wayne Ave, Chicago, IL' },
+]
+const FLOOR_OPTIONS = [
+  { value: 'garden', label: 'Garden Floor' },
+  { value: 'first', label: 'First Floor' },
+  { value: 'second', label: 'Second Floor' },
+]
 const ROOM_OPTIONS = ['A', 'B', 'C', 'D', 'E']
 const ENROLLMENT_OPTIONS = [
   { value: 'full_time', label: 'Full-time' },
   { value: 'part_time', label: 'Part-time' },
 ]
+const RELATIONSHIP_OPTIONS = ['Mom', 'Dad', 'Guardian', 'Other'] // Other → 顯示自由輸入
+const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC']
 
 const STEP_TITLES = [
   'Personal & contact',
@@ -20,8 +33,36 @@ const STEP_TITLES = [
   'References & consent',
 ]
 
+const SENSITIVE_COPY =
+  'SSN / ITIN and ID verification are completed through our secure screening partner. They are not collected or stored in this portal.'
+
+const EMPTY_ADDRESS = {
+  address_line1: '',
+  address_line2: '',
+  city: '',
+  state: '',
+  zip: '',
+}
+
 const rowStyle = { display: 'flex', flexWrap: 'wrap', gap: 14 }
 const colStyle = { flex: '1 1 220px', minWidth: 0 }
+const halfStyle = { flex: '1 1 0', minWidth: 0 }
+const nameColStyle = { flex: '1 1 160px', minWidth: 0 }
+
+function todayIsoDate() {
+  const d = new Date()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${month}-${day}`
+}
+
+function todayLabel() {
+  return new Date().toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
 
 function SensitiveBlock({ children }) {
   return (
@@ -37,6 +78,83 @@ function SensitiveBlock({ children }) {
       }}
     >
       {children}
+    </div>
+  )
+}
+
+function SectionTitle({ children }) {
+  return (
+    <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: 'var(--ink)' }}>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * Normalized US address block: line1 / line2 / city / state / zip.
+ * `value` is an object shaped like EMPTY_ADDRESS; `onChange(key, val)`.
+ */
+function AddressFields({ idPrefix, value, onChange }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <Field label="Address line 1" htmlFor={`${idPrefix}-line1`}>
+        <input
+          id={`${idPrefix}-line1`}
+          className="input"
+          value={value.address_line1}
+          onChange={(e) => onChange('address_line1', e.target.value)}
+          placeholder="Street address"
+        />
+      </Field>
+      <Field label="Address line 2 (optional)" htmlFor={`${idPrefix}-line2`}>
+        <input
+          id={`${idPrefix}-line2`}
+          className="input"
+          value={value.address_line2}
+          onChange={(e) => onChange('address_line2', e.target.value)}
+          placeholder="Apartment, suite, unit"
+        />
+      </Field>
+      <div style={rowStyle}>
+        <div style={colStyle}>
+          <Field label="City" htmlFor={`${idPrefix}-city`}>
+            <input
+              id={`${idPrefix}-city`}
+              className="input"
+              value={value.city}
+              onChange={(e) => onChange('city', e.target.value)}
+            />
+          </Field>
+        </div>
+        <div style={colStyle}>
+          <Field label="State" htmlFor={`${idPrefix}-state`}>
+            <select
+              id={`${idPrefix}-state`}
+              className="select"
+              value={value.state}
+              onChange={(e) => onChange('state', e.target.value)}
+            >
+              <option value="">Select a state</option>
+              {US_STATES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <div style={colStyle}>
+          <Field label="ZIP" htmlFor={`${idPrefix}-zip`}>
+            <input
+              id={`${idPrefix}-zip`}
+              className="input"
+              value={value.zip}
+              onChange={(e) => onChange('zip', e.target.value)}
+              placeholder="60626"
+            />
+          </Field>
+        </div>
+      </div>
     </div>
   )
 }
@@ -73,16 +191,18 @@ export default function Application() {
   const [confirmPassword, setConfirmPassword] = useState('')
 
   // Step 1 — personal & contact
-  const [fullLegalName, setFullLegalName] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [middleName, setMiddleName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [dateOfBirth, setDateOfBirth] = useState('')
-  const [currentAddress, setCurrentAddress] = useState('')
   const [phone, setPhone] = useState('')
-  const [desiredUnit, setDesiredUnit] = useState('')
+  const [address, setAddress] = useState({ ...EMPTY_ADDRESS })
+  const [desiredBuilding, setDesiredBuilding] = useState('')
+  const [desiredFloor, setDesiredFloor] = useState('')
   const [desiredRoom, setDesiredRoom] = useState('')
 
-  // Step 2 — residency history
+  // Step 2 — residency history (no current address — collected in step 1)
   const [residency, setResidency] = useState({
-    current_address: '',
     landlord_name: '',
     landlord_phone: '',
     monthly_rent: '',
@@ -102,26 +222,32 @@ export default function Application() {
 
   // Step 4 — guarantor
   const [guarantor, setGuarantor] = useState({
-    name: '',
+    first_name: '',
+    middle_name: '',
+    last_name: '',
     relationship: '',
-    address: '',
+    relationship_other: '',
+    address_line1: '',
+    address_line2: '',
+    city: '',
+    state: '',
+    zip: '',
     phone: '',
     email: '',
     employer: '',
     income: '',
-    typed_name_ack: '',
-    ack_at: null,
+    print_name_ack: '',
   })
 
   // Step 5 — co-applicants
   const [coApplicants, setCoApplicants] = useState([])
 
-  // Step 6 — references + consent
-  const [prevLandlord, setPrevLandlord] = useState({ name: '', phone: '' })
+  // Step 6 — references + consent (no previous landlord)
   const [personalRefs, setPersonalRefs] = useState([{ name: '', phone: '', relationship: '' }])
   const [consentCredit, setConsentCredit] = useState(false)
   const [consentCriminal, setConsentCriminal] = useState(false)
   const [consentRentalHistory, setConsentRentalHistory] = useState(false)
+  const [applicantPrintNameAck, setApplicantPrintNameAck] = useState('')
 
   // Prefill for declined re-apply
   useEffect(() => {
@@ -141,16 +267,25 @@ export default function Application() {
       }
       if (!data) return
       setApplicationId(data.id)
-      setFullLegalName(data.full_legal_name || '')
+
+      setFirstName(data.first_name || '')
+      setMiddleName(data.middle_name || '')
+      setLastName(data.last_name || '')
       setDateOfBirth(data.date_of_birth || '')
-      setCurrentAddress(data.current_address || '')
       setPhone(data.phone || '')
-      setDesiredUnit(data.desired_unit_label || '')
-      setDesiredRoom(data.desired_room_label || '')
+      setAddress({
+        address_line1: data.address_line1 || '',
+        address_line2: data.address_line2 || '',
+        city: data.city || '',
+        state: data.state || '',
+        zip: data.zip || '',
+      })
+      setDesiredBuilding(data.desired_building || '')
+      setDesiredFloor(data.desired_floor || '')
+      setDesiredRoom(data.desired_room || '')
 
       const rh = data.residency_history || {}
       setResidency({
-        current_address: rh.current_address || '',
         landlord_name: rh.landlord_name || '',
         landlord_phone: rh.landlord_phone || '',
         monthly_rent: rh.monthly_rent || '',
@@ -168,16 +303,24 @@ export default function Application() {
       setExistingProofUrl(data.proof_of_enrollment_url || null)
 
       const g = data.guarantor || {}
+      const storedRel = g.relationship || ''
+      const isKnownRel = RELATIONSHIP_OPTIONS.includes(storedRel)
       setGuarantor({
-        name: g.name || '',
-        relationship: g.relationship || '',
-        address: g.address || '',
+        first_name: g.first_name || '',
+        middle_name: g.middle_name || '',
+        last_name: g.last_name || '',
+        relationship: storedRel ? (isKnownRel ? storedRel : 'Other') : '',
+        relationship_other: storedRel && !isKnownRel ? storedRel : '',
+        address_line1: g.address_line1 || '',
+        address_line2: g.address_line2 || '',
+        city: g.city || '',
+        state: g.state || '',
+        zip: g.zip || '',
         phone: g.phone || '',
         email: g.email || '',
         employer: g.employer || '',
         income: g.income || '',
-        typed_name_ack: g.typed_name_ack || '',
-        ack_at: g.ack_at || null,
+        print_name_ack: g.print_name_ack || '',
       })
 
       setCoApplicants(
@@ -191,8 +334,6 @@ export default function Application() {
       )
 
       const refs = data.references || {}
-      const pl = refs.previous_landlord || {}
-      setPrevLandlord({ name: pl.name || '', phone: pl.phone || '' })
       const personal = Array.isArray(refs.personal) ? refs.personal : []
       setPersonalRefs(
         personal.length
@@ -207,20 +348,15 @@ export default function Application() {
       setConsentCredit(!!data.consent_credit)
       setConsentCriminal(!!data.consent_criminal)
       setConsentRentalHistory(!!data.consent_rental_history)
+      // 重新送出時必須重新確認一次，不預填舊的 acknowledgment
+      setApplicantPrintNameAck('')
     })()
     return () => {
       cancelled = true
     }
   }, [isResubmit, profile?.id])
 
-  // Guarantor typed-name acknowledgment (captures ack_at when first typed)
-  const setGuarantorAck = (val) => {
-    setGuarantor((g) => ({
-      ...g,
-      typed_name_ack: val,
-      ack_at: val.trim() ? g.ack_at || new Date().toISOString() : null,
-    }))
-  }
+  const updateAddress = (key, val) => setAddress((a) => ({ ...a, [key]: val }))
   const updateGuarantor = (key, val) => setGuarantor((g) => ({ ...g, [key]: val }))
   const updateResidency = (key, val) => setResidency((r) => ({ ...r, [key]: val }))
 
@@ -238,6 +374,33 @@ export default function Application() {
   const updatePersonalRef = (i, key, val) =>
     setPersonalRefs((a) => a.map((row, idx) => (idx === i ? { ...row, [key]: val } : row)))
 
+  // Proof of enrollment (required)
+  const hasProof = !!proofFile || !!existingProofUrl
+
+  function onProofChange(e) {
+    const file = e.target.files?.[0] || null
+    if (!file) {
+      setProofFile(null)
+      return
+    }
+    const type = file.type || ''
+    const isAllowed = type.startsWith('image/') || type === 'application/pdf'
+    if (!isAllowed) {
+      setProofFile(null)
+      e.target.value = ''
+      setError('Please upload an image or a PDF file.')
+      return
+    }
+    setError('')
+    setProofFile(file)
+  }
+
+  function resolvedGuarantorRelationship() {
+    return guarantor.relationship === 'Other'
+      ? guarantor.relationship_other.trim()
+      : guarantor.relationship
+  }
+
   function validateStep(s) {
     if (s === 1) {
       if (!isResubmit) {
@@ -245,12 +408,17 @@ export default function Application() {
         if (password.length < 8) return 'Password must be at least 8 characters.'
         if (password !== confirmPassword) return 'The passwords do not match.'
       }
-      if (!fullLegalName.trim()) return 'Please enter your full legal name.'
+      if (!firstName.trim()) return 'Please enter your first name.'
+      if (!lastName.trim()) return 'Please enter your last name.'
       if (!dateOfBirth) return 'Please enter your date of birth.'
-      if (!currentAddress.trim()) return 'Please enter your current address.'
+      if (!address.address_line1.trim()) return 'Please enter your address line 1.'
+      if (!address.city.trim()) return 'Please enter your city.'
+      if (!address.state) return 'Please select your state.'
+      if (!address.zip.trim()) return 'Please enter your ZIP code.'
       if (!phone.trim()) return 'Please enter your phone number.'
-      if (!desiredUnit.trim()) return 'Please enter your desired unit.'
-      if (!desiredRoom) return 'Please select a desired room.'
+      if (!desiredBuilding) return 'Please select the building you would like to apply for.'
+      if (!desiredFloor) return 'Please select a floor.'
+      if (!desiredRoom) return 'Please select a room.'
       return null
     }
     if (s === 2) {
@@ -267,18 +435,26 @@ export default function Application() {
       if (!classStanding.trim()) return 'Please enter your year / class standing.'
       if (!expectedGraduation.trim()) return 'Please enter your expected graduation.'
       if (!enrollmentStatus) return 'Please select your enrollment status.'
+      if (!hasProof) return 'Please upload your proof of enrollment (image or PDF).'
       return null
     }
     if (s === 4) {
       if (GUARANTOR_REQUIRED) {
-        if (!guarantor.name.trim()) return 'Please enter the guarantor name.'
-        if (!guarantor.relationship.trim()) return 'Please enter the guarantor relationship.'
+        if (!guarantor.first_name.trim()) return 'Please enter the guarantor first name.'
+        if (!guarantor.last_name.trim()) return 'Please enter the guarantor last name.'
+        if (!guarantor.relationship) return 'Please select the guarantor relationship.'
+        if (guarantor.relationship === 'Other' && !guarantor.relationship_other.trim())
+          return 'Please describe the guarantor relationship.'
+        if (!guarantor.address_line1.trim()) return 'Please enter the guarantor address line 1.'
+        if (!guarantor.city.trim()) return 'Please enter the guarantor city.'
+        if (!guarantor.state) return 'Please select the guarantor state.'
+        if (!guarantor.zip.trim()) return 'Please enter the guarantor ZIP code.'
         if (!guarantor.phone.trim()) return 'Please enter the guarantor phone number.'
         if (!guarantor.email.trim()) return 'Please enter the guarantor email.'
         if (!guarantor.employer.trim()) return 'Please enter the guarantor employer.'
         if (!String(guarantor.income).trim()) return 'Please enter the guarantor income.'
-        if (!guarantor.typed_name_ack.trim())
-          return 'Please have the guarantor type their full name to acknowledge.'
+        if (!guarantor.print_name_ack.trim())
+          return 'Please have the guarantor print their full name to acknowledge.'
       }
       return null
     }
@@ -288,6 +464,8 @@ export default function Application() {
     if (s === 6) {
       if (!consentCredit || !consentCriminal || !consentRentalHistory)
         return 'You must authorize all three screening checks to submit your application.'
+      if (!applicantPrintNameAck.trim())
+        return 'Please print your full name to acknowledge and submit your application.'
       return null
     }
     return null
@@ -309,7 +487,10 @@ export default function Application() {
   }
 
   async function uploadProof(userId) {
-    if (!proofFile) return existingProofUrl || null
+    if (!proofFile) {
+      if (existingProofUrl) return existingProofUrl
+      throw new Error('Proof of enrollment is required. Please upload an image or PDF.')
+    }
     const parts = proofFile.name.split('.')
     const ext = parts.length > 1 ? parts.pop() : 'dat'
     const path = `${userId}/${Date.now()}.${ext}`
@@ -319,16 +500,24 @@ export default function Application() {
   }
 
   function buildPayload(proofUrl) {
+    const ackDate = todayIsoDate()
     return {
-      full_legal_name: fullLegalName,
-      current_address: currentAddress,
+      first_name: firstName,
+      middle_name: middleName,
+      last_name: lastName,
+      address_line1: address.address_line1,
+      address_line2: address.address_line2,
+      city: address.city,
+      state: address.state,
+      zip: address.zip,
       phone,
       email: isResubmit ? profileEmail : email,
       date_of_birth: dateOfBirth,
-      desired_unit_label: desiredUnit,
-      desired_room_label: desiredRoom,
+      desired_building: desiredBuilding,
+      desired_floor: desiredFloor,
+      desired_room: desiredRoom,
+      // 敏感欄位（ssn_or_itin / drivers_license）永不蒐集、永不出現在 payload
       residency_history: {
-        current_address: residency.current_address,
         landlord_name: residency.landlord_name,
         landlord_phone: residency.landlord_phone,
         monthly_rent: residency.monthly_rent,
@@ -344,34 +533,45 @@ export default function Application() {
       enrollment_status: enrollmentStatus,
       proof_of_enrollment_url: proofUrl,
       guarantor: {
-        name: guarantor.name,
-        relationship: guarantor.relationship,
-        address: guarantor.address,
+        first_name: guarantor.first_name,
+        middle_name: guarantor.middle_name,
+        last_name: guarantor.last_name,
+        relationship: resolvedGuarantorRelationship(),
+        address_line1: guarantor.address_line1,
+        address_line2: guarantor.address_line2,
+        city: guarantor.city,
+        state: guarantor.state,
+        zip: guarantor.zip,
         phone: guarantor.phone,
         email: guarantor.email,
         employer: guarantor.employer,
         income: guarantor.income,
-        typed_name_ack: guarantor.typed_name_ack,
-        ack_at: guarantor.typed_name_ack.trim() ? guarantor.ack_at || new Date().toISOString() : null,
+        print_name_ack: guarantor.print_name_ack,
+        ack_date: guarantor.print_name_ack.trim() ? ackDate : null,
+        // guarantor_ssn 永不蒐集、永不出現在 payload
       },
       guarantor_required: GUARANTOR_REQUIRED,
       co_applicants: coApplicants,
       references: {
-        previous_landlord: { name: prevLandlord.name, phone: prevLandlord.phone },
         personal: personalRefs,
       },
       consent_credit: consentCredit,
       consent_criminal: consentCriminal,
       consent_rental_history: consentRentalHistory,
       consent_at: new Date().toISOString(),
+      applicant_print_name_ack: applicantPrintNameAck,
+      applicant_ack_date: applicantPrintNameAck.trim() ? ackDate : null,
     }
   }
 
   async function handleSubmit() {
-    const err = validateStep(6)
-    if (err) {
-      setError(err)
-      return
+    for (let s = 1; s <= 6; s += 1) {
+      const stepErr = validateStep(s)
+      if (stepErr) {
+        setError(stepErr)
+        setStep(s)
+        return
+      }
     }
     setError('')
     setLoading(true)
@@ -387,7 +587,10 @@ export default function Application() {
         if (rpcErr) throw rpcErr
         navigate('/pending')
       } else {
-        const { error: signErr } = await signUp(email, password, { full_name: fullLegalName })
+        const { error: signErr } = await signUp(email, password, {
+          first_name: firstName,
+          last_name: lastName,
+        })
         if (signErr) throw signErr
         const { data: userData, error: userErr } = await supabase.auth.getUser()
         if (userErr) throw userErr
@@ -528,14 +731,38 @@ export default function Application() {
                   </Field>
                 )}
 
-                <Field label="Full legal name" htmlFor="app-name">
-                  <input
-                    id="app-name"
-                    className="input"
-                    value={fullLegalName}
-                    onChange={(e) => setFullLegalName(e.target.value)}
-                  />
-                </Field>
+                <div style={rowStyle}>
+                  <div style={nameColStyle}>
+                    <Field label="First name" htmlFor="app-first">
+                      <input
+                        id="app-first"
+                        className="input"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={nameColStyle}>
+                    <Field label="Middle name (optional)" htmlFor="app-middle">
+                      <input
+                        id="app-middle"
+                        className="input"
+                        value={middleName}
+                        onChange={(e) => setMiddleName(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={nameColStyle}>
+                    <Field label="Last name" htmlFor="app-last">
+                      <input
+                        id="app-last"
+                        className="input"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
 
                 <div style={rowStyle}>
                   <div style={colStyle}>
@@ -561,64 +788,73 @@ export default function Application() {
                   </div>
                 </div>
 
-                <Field label="Current address" htmlFor="app-addr">
-                  <textarea
-                    id="app-addr"
-                    className="textarea"
-                    value={currentAddress}
-                    onChange={(e) => setCurrentAddress(e.target.value)}
-                  />
-                </Field>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <SectionTitle>Current address</SectionTitle>
+                  <AddressFields idPrefix="app-addr" value={address} onChange={updateAddress} />
+                </div>
 
-                <div style={rowStyle}>
-                  <div style={colStyle}>
-                    <Field label="Desired unit" htmlFor="app-unit">
-                      <input
-                        id="app-unit"
-                        className="input"
-                        value={desiredUnit}
-                        onChange={(e) => setDesiredUnit(e.target.value)}
-                        placeholder="Unit 2"
-                      />
-                    </Field>
-                  </div>
-                  <div style={colStyle}>
-                    <Field label="Room" htmlFor="app-room">
-                      <select
-                        id="app-room"
-                        className="select"
-                        value={desiredRoom}
-                        onChange={(e) => setDesiredRoom(e.target.value)}
-                      >
-                        <option value="">Select a room</option>
-                        {ROOM_OPTIONS.map((r) => (
-                          <option key={r} value={r}>
-                            Room {r}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <SectionTitle>Where you'd like to live</SectionTitle>
+                  <Field label="Building" htmlFor="app-building">
+                    <select
+                      id="app-building"
+                      className="select"
+                      value={desiredBuilding}
+                      onChange={(e) => setDesiredBuilding(e.target.value)}
+                    >
+                      <option value="">Select a building</option>
+                      {BUILDING_OPTIONS.map((b) => (
+                        <option key={b.value} value={b.value}>
+                          {b.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <div style={rowStyle}>
+                    <div style={colStyle}>
+                      <Field label="Floor" htmlFor="app-floor">
+                        <select
+                          id="app-floor"
+                          className="select"
+                          value={desiredFloor}
+                          onChange={(e) => setDesiredFloor(e.target.value)}
+                        >
+                          <option value="">Select a floor</option>
+                          {FLOOR_OPTIONS.map((f) => (
+                            <option key={f.value} value={f.value}>
+                              {f.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    </div>
+                    <div style={colStyle}>
+                      <Field label="Room" htmlFor="app-room">
+                        <select
+                          id="app-room"
+                          className="select"
+                          value={desiredRoom}
+                          onChange={(e) => setDesiredRoom(e.target.value)}
+                        >
+                          <option value="">Select a room</option>
+                          {ROOM_OPTIONS.map((r) => (
+                            <option key={r} value={r}>
+                              Room {r}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    </div>
                   </div>
                 </div>
 
-                <SensitiveBlock>
-                  Social Security / ITIN and ID verification are collected securely during the
-                  screening step and are not stored in this portal.
-                </SensitiveBlock>
+                <SensitiveBlock>{SENSITIVE_COPY}</SensitiveBlock>
               </div>
             )}
 
             {/* STEP 2 */}
             {step === 2 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <Field label="Current address" htmlFor="res-addr">
-                  <input
-                    id="res-addr"
-                    className="input"
-                    value={residency.current_address}
-                    onChange={(e) => updateResidency('current_address', e.target.value)}
-                  />
-                </Field>
                 <div style={rowStyle}>
                   <div style={colStyle}>
                     <Field label="Current landlord name" htmlFor="res-ll-name">
@@ -641,19 +877,20 @@ export default function Application() {
                     </Field>
                   </div>
                 </div>
+
+                <Field label="Monthly rent" htmlFor="res-rent">
+                  <input
+                    id="res-rent"
+                    className="input"
+                    value={residency.monthly_rent}
+                    onChange={(e) => updateResidency('monthly_rent', e.target.value)}
+                    placeholder="e.g. 850"
+                  />
+                </Field>
+
                 <div style={rowStyle}>
-                  <div style={colStyle}>
-                    <Field label="Monthly rent" htmlFor="res-rent">
-                      <input
-                        id="res-rent"
-                        className="input"
-                        value={residency.monthly_rent}
-                        onChange={(e) => updateResidency('monthly_rent', e.target.value)}
-                      />
-                    </Field>
-                  </div>
-                  <div style={colStyle}>
-                    <Field label="Move-in date" htmlFor="res-in">
+                  <div style={halfStyle}>
+                    <Field label="Move-in date (current residence)" htmlFor="res-in">
                       <input
                         id="res-in"
                         className="input"
@@ -663,8 +900,11 @@ export default function Application() {
                       />
                     </Field>
                   </div>
-                  <div style={colStyle}>
-                    <Field label="Move-out date" htmlFor="res-out">
+                  <div style={halfStyle}>
+                    <Field
+                      label="Move-out date (leave blank if you still live here)"
+                      htmlFor="res-out"
+                    >
                       <input
                         id="res-out"
                         className="input"
@@ -675,6 +915,7 @@ export default function Application() {
                     </Field>
                   </div>
                 </div>
+
                 <Field label="Reason for leaving" htmlFor="res-reason">
                   <textarea
                     id="res-reason"
@@ -683,13 +924,17 @@ export default function Application() {
                     onChange={(e) => updateResidency('reason_for_leaving', e.target.value)}
                   />
                 </Field>
-                <Field label="Prior address (optional)" htmlFor="res-prior">
+
+                <Field
+                  label="Prior address (only if you've lived at your current address less than 2 years)"
+                  htmlFor="res-prior"
+                >
                   <textarea
                     id="res-prior"
                     className="textarea"
                     value={residency.prior_address}
                     onChange={(e) => updateResidency('prior_address', e.target.value)}
-                    placeholder="Only if you've lived at your current address less than 1–2 years"
+                    placeholder="Street, city, state, ZIP — optional"
                   />
                 </Field>
               </div>
@@ -759,22 +1004,28 @@ export default function Application() {
                     ))}
                   </select>
                 </Field>
-                <Field label="Proof of enrollment (optional)" htmlFor="sch-proof">
+                <Field label="Proof of enrollment" htmlFor="sch-proof">
                   <input
                     id="sch-proof"
                     className="input"
                     type="file"
                     accept="image/*,application/pdf"
-                    onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                    onChange={onProofChange}
                   />
                 </Field>
+                {proofFile && (
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                    Selected: {proofFile.name}
+                  </div>
+                )}
                 {existingProofUrl && !proofFile && (
                   <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
                     A proof file is already on record. Choosing a new file will replace it.
                   </div>
                 )}
                 <div style={{ fontSize: 13, color: 'var(--ink-faint)' }}>
-                  Accepts an image or PDF. This is optional and won't block your submission.
+                  Required. Upload a class schedule, enrollment verification letter, or student
+                  account screenshot as an image or PDF.
                 </div>
               </div>
             )}
@@ -782,36 +1033,91 @@ export default function Application() {
             {/* STEP 4 */}
             {step === 4 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ fontSize: 14, color: 'var(--ink-soft)' }}>
+                  A guarantor is required for every applicant.
+                </div>
+
                 <div style={rowStyle}>
-                  <div style={colStyle}>
-                    <Field label="Name" htmlFor="g-name">
+                  <div style={nameColStyle}>
+                    <Field label="First name" htmlFor="g-first">
                       <input
-                        id="g-name"
+                        id="g-first"
                         className="input"
-                        value={guarantor.name}
-                        onChange={(e) => updateGuarantor('name', e.target.value)}
+                        value={guarantor.first_name}
+                        onChange={(e) => updateGuarantor('first_name', e.target.value)}
                       />
                     </Field>
                   </div>
-                  <div style={colStyle}>
-                    <Field label="Relationship to applicant" htmlFor="g-rel">
+                  <div style={nameColStyle}>
+                    <Field label="Middle name (optional)" htmlFor="g-middle">
                       <input
-                        id="g-rel"
+                        id="g-middle"
                         className="input"
-                        value={guarantor.relationship}
-                        onChange={(e) => updateGuarantor('relationship', e.target.value)}
+                        value={guarantor.middle_name}
+                        onChange={(e) => updateGuarantor('middle_name', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={nameColStyle}>
+                    <Field label="Last name" htmlFor="g-last">
+                      <input
+                        id="g-last"
+                        className="input"
+                        value={guarantor.last_name}
+                        onChange={(e) => updateGuarantor('last_name', e.target.value)}
                       />
                     </Field>
                   </div>
                 </div>
-                <Field label="Address" htmlFor="g-addr">
-                  <textarea
-                    id="g-addr"
-                    className="textarea"
-                    value={guarantor.address}
-                    onChange={(e) => updateGuarantor('address', e.target.value)}
+
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Relationship to applicant" htmlFor="g-rel">
+                      <select
+                        id="g-rel"
+                        className="select"
+                        value={guarantor.relationship}
+                        onChange={(e) => updateGuarantor('relationship', e.target.value)}
+                      >
+                        <option value="">Select a relationship</option>
+                        {RELATIONSHIP_OPTIONS.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+                  {guarantor.relationship === 'Other' && (
+                    <div style={colStyle}>
+                      <Field label="Please describe" htmlFor="g-rel-other">
+                        <input
+                          id="g-rel-other"
+                          className="input"
+                          value={guarantor.relationship_other}
+                          onChange={(e) => updateGuarantor('relationship_other', e.target.value)}
+                          placeholder="e.g. Aunt"
+                        />
+                      </Field>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <SectionTitle>Guarantor address</SectionTitle>
+                  <AddressFields
+                    idPrefix="g-addr"
+                    value={{
+                      address_line1: guarantor.address_line1,
+                      address_line2: guarantor.address_line2,
+                      city: guarantor.city,
+                      state: guarantor.state,
+                      zip: guarantor.zip,
+                    }}
+                    onChange={updateGuarantor}
                   />
-                </Field>
+                </div>
+
                 <div style={rowStyle}>
                   <div style={colStyle}>
                     <Field label="Phone" htmlFor="g-phone">
@@ -853,29 +1159,31 @@ export default function Application() {
                         className="input"
                         value={guarantor.income}
                         onChange={(e) => updateGuarantor('income', e.target.value)}
+                        placeholder="Annual income"
                       />
                     </Field>
                   </div>
                 </div>
 
-                <SensitiveBlock>
-                  Social Security / ITIN and ID verification are collected securely during the
-                  screening step and are not stored in this portal.
-                </SensitiveBlock>
+                <SensitiveBlock>{SENSITIVE_COPY}</SensitiveBlock>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
-                    By typing your full name, you acknowledge your intent to guarantee this lease. (A
-                    legally binding e-signature will be collected in the live version.)
+                    By printing your full name below, you acknowledge your intent to guarantee this
+                    lease. (A legally binding e-signature will be collected in the live version.)
                   </div>
-                  <Field label="Typed-name acknowledgment" htmlFor="g-ack">
+                  <Field label="Print name for acknowledgment" htmlFor="g-ack">
                     <input
                       id="g-ack"
                       className="input"
-                      value={guarantor.typed_name_ack}
-                      onChange={(e) => setGuarantorAck(e.target.value)}
+                      value={guarantor.print_name_ack}
+                      onChange={(e) => updateGuarantor('print_name_ack', e.target.value)}
+                      placeholder="Guarantor full name"
                     />
                   </Field>
+                  <div style={{ fontSize: 13, color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)' }}>
+                    Date: {todayLabel()}
+                  </div>
                 </div>
               </div>
             )}
@@ -953,37 +1261,7 @@ export default function Application() {
             {step === 6 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: 'var(--ink)' }}>
-                    Previous landlord
-                  </div>
-                  <div style={rowStyle}>
-                    <div style={colStyle}>
-                      <Field label="Name" htmlFor="pl-name">
-                        <input
-                          id="pl-name"
-                          className="input"
-                          value={prevLandlord.name}
-                          onChange={(e) => setPrevLandlord((p) => ({ ...p, name: e.target.value }))}
-                        />
-                      </Field>
-                    </div>
-                    <div style={colStyle}>
-                      <Field label="Phone" htmlFor="pl-phone">
-                        <input
-                          id="pl-phone"
-                          className="input"
-                          value={prevLandlord.phone}
-                          onChange={(e) => setPrevLandlord((p) => ({ ...p, phone: e.target.value }))}
-                        />
-                      </Field>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: 'var(--ink)' }}>
-                    Personal references
-                  </div>
+                  <SectionTitle>Personal references</SectionTitle>
                   <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
                     Please provide one or two references who are not family members.
                   </div>
@@ -1050,9 +1328,7 @@ export default function Application() {
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: 'var(--ink)' }}>
-                    Screening consent
-                  </div>
+                  <SectionTitle>Screening consent</SectionTitle>
                   <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
                     Authorization is required to process your application. No checks are run in this
                     preview.
@@ -1086,6 +1362,26 @@ export default function Application() {
                       Authorize verification of rental / eviction history
                     </span>
                   </label>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <SectionTitle>Acknowledgment</SectionTitle>
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                    By printing your full name below, you confirm that the information in this
+                    application is true and complete, and you agree to the authorizations above.
+                  </div>
+                  <Field label="Print name for acknowledgment" htmlFor="app-ack">
+                    <input
+                      id="app-ack"
+                      className="input"
+                      value={applicantPrintNameAck}
+                      onChange={(e) => setApplicantPrintNameAck(e.target.value)}
+                      placeholder="Your full name"
+                    />
+                  </Field>
+                  <div style={{ fontSize: 13, color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)' }}>
+                    Date: {todayLabel()}
+                  </div>
                 </div>
               </div>
             )}
