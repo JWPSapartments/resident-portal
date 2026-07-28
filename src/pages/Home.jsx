@@ -15,32 +15,6 @@ const STATUS_LABEL = {
   completed: 'Completed',
 }
 
-// Address code → human-readable label. Profiles store building/floor as codes.
-const BUILDING_LABELS = {
-  '1240_arthur': '1240 W Arthur Ave',
-  '1243_arthur': '1243 W Arthur Ave',
-  '6419_wayne': '6419 N Wayne Ave',
-}
-
-const FLOOR_LABELS = {
-  garden: 'Garden Floor',
-  first: 'First Floor',
-  second: 'Second Floor',
-}
-
-// '1240 W Arthur Ave · First Floor · Room B' — any missing part is skipped
-// rather than rendering an empty separator or a raw code.
-function formatAddress(profile) {
-  if (!profile) return ''
-  const parts = []
-  const building = BUILDING_LABELS[profile.building]
-  const floor = FLOOR_LABELS[profile.floor]
-  if (building) parts.push(building)
-  if (floor) parts.push(floor)
-  if (profile.room_label) parts.push(`Room ${profile.room_label}`)
-  return parts.join(' · ')
-}
-
 // Sum a numeric column across a row array, tolerating null/undefined.
 function sumBy(rows, key) {
   return (rows || []).reduce((total, row) => total + Number(row[key] || 0), 0)
@@ -200,7 +174,6 @@ export default function Home() {
 
   const firstName = profile?.first_name || ''
   const greeting = firstName ? `Welcome back, ${firstName}` : 'Welcome back'
-  const addressLine = formatAddress(profile)
 
   // Lease signature status — Phase 1 always resolves to 'unsigned', but the
   // display is driven by the column value, not hard-coded.
@@ -245,7 +218,7 @@ export default function Home() {
 
   return (
     <>
-      <PageHead title={greeting} subtitle={addressLine} />
+      <PageHead title={greeting} />
 
       {/* Rent status — date-based summary, pinned to the top */}
       <div style={{ marginBottom: '20px' }}>
