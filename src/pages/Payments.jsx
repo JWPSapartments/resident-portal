@@ -28,12 +28,26 @@ function pickInvoice(invoices) {
 
 function friendlyPayError(error) {
   const msg = (error?.message || '').toLowerCase()
-  if (msg.includes('paid')) {
+
+  // Current record_payment error strings (most specific first)
+  if (msg.includes('invoice already paid in full')) {
+    return 'This invoice has already been paid in full.'
+  }
+  if (msg.includes('payment amount exceeds outstanding balance')) {
+    return 'That amount is more than the balance due. Please enter an amount at or below the outstanding balance.'
+  }
+  if (msg.includes('invalid payment amount')) {
+    return 'Please enter a valid amount greater than $0.'
+  }
+
+  // Legacy / loose fallbacks
+  if (msg.includes('already paid') || msg.includes('paid')) {
     return 'This invoice has already been paid in full.'
   }
   if (msg.includes('amount') || msg.includes('positive') || msg.includes('> 0')) {
-    return 'Please enter an amount greater than $0.'
+    return 'Please enter a valid amount greater than $0.'
   }
+
   return "We couldn't process this payment. Please try again."
 }
 
