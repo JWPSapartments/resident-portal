@@ -1,678 +1,1447 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '../../lib/supabase'
-import { formatDate } from '../../lib/format'
-import { PageHead, Card, CardHead, StatusPill, Button, Field, EmptyState } from '../../components/ui'
+import { useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
+import { PageHead, Card, Field, Button } from '../components/ui'
 
-// ---- small helpers ---------------------------------------------------------
+const GUARANTOR_REQUIRED = true // 客戶已確認：guarantor 必填
 
-const v = (x) => (x === null || x === undefined || x === '' ? '—' : x)
+const BUILDING_OPTIONS = [
+  { value: '1240_arthur', label: '1240 W Arthur Ave, Chicago, IL' },
+  { value: '1243_arthur', label: '1243 W Arthur Ave, Chicago, IL' },
+  { value: '6419_wayne', label: '6419 N Wayne Ave, Chicago, IL' },
+]
+const FLOOR_OPTIONS = [
+  { value: 'garden', label: 'Garden Floor' },
+  { value: 'first', label: 'First Floor' },
+  { value: 'second', label: 'Second Floor' },
+]
+const ROOM_OPTIONS = ['A', 'B', 'C', 'D', 'E']
+const ENROLLMENT_OPTIONS = [
+  { value: 'full_time', label: 'Full-time' },
+  { value: 'part_time', label: 'Part-time' },
+]
+const RELATIONSHIP_OPTIONS = ['Mom', 'Dad', 'Guardian', 'Other'] // Other → 顯示自由輸入
+const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC']
 
-const d = (x) => {
-  if (!x) return '—'
-  try {
-    const s = formatDate(x)
-    return s || '—'
-  } catch {
-    return String(x)
-  }
+const STEP_TITLES = [
+  'Personal & contact',
+  'Residency history',
+  'School enrollment',
+  'Guarantor / co-signer',
+  'Co-applicants',
+  'References & consent',
+]
+
+const SENSITIVE_COPY =
+  'SSN / ITIN and ID verification are completed through our secure screening partner. They are not collected or stored in this portal.'
+
+const EMPTY_ADDRESS = {
+  address_line1: '',
+  address_line2: '',
+  city: '',
+  state: '',
+  zip: '',
 }
 
-// ---- unit label maps -------------------------------------------------------
+const rowStyle = { display: 'flex', flexWrap: 'wrap', gap: 14 }
+const colStyle = { flex: '1 1 220px', minWidth: 0 }
+const halfStyle = { flex: '1 1 0', minWidth: 0 }
+const nameColStyle = { flex: '1 1 160px', minWidth: 0 }
 
-const BUILDING_LABELS = {
-  '1240_arthur': '1240 W Arthur Ave',
-  '1243_arthur': '1243 W Arthur Ave',
-  '6419_wayne': '6419 N Wayne Ave',
+function todayIsoDate() {
+  const d = new Date()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${month}-${day}`
 }
 
-const FLOOR_LABELS = {
-  garden: 'Garden Floor',
-  first: 'First Floor',
-  second: 'Second Floor',
+function todayLabel() {
+  return new Date().toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
 }
 
-const buildingLabel = (b) => (b ? BUILDING_LABELS[b] || b : null)
-const floorLabel = (f) => (f ? FLOOR_LABELS[f] || f : null)
-const roomLabel = (r) => (r ? `Room ${r}` : null)
-
-// full: "1240 W Arthur Ave · First Floor · Room B"
-function desiredUnitFull(app) {
-  if (!app) return '—'
-  const parts = [
-    buildingLabel(app.desired_building),
-    floorLabel(app.desired_floor),
-    roomLabel(app.desired_room),
-  ].filter(Boolean)
-  return parts.length ? parts.join(' · ') : '—'
-}
-
-// short (list rows): "1240 W Arthur Ave · Room B"
-function desiredUnitShort(app) {
-  if (!app) return '—'
-  const parts = [buildingLabel(app.desired_building), roomLabel(app.desired_room)].filter(Boolean)
-  return parts.length ? parts.join(' · ') : '—'
-}
-
-// ---- name / address composition -------------------------------------------
-
-function composeName(src) {
-  if (!src) return '—'
-  const parts = [src.first_name, src.middle_name, src.last_name]
-    .map((p) => (typeof p === 'string' ? p.trim() : p))
-    .filter(Boolean)
-  return parts.length ? parts.join(' ') : '—'
-}
-
-function composeAddress(src) {
-  if (!src) return '—'
-  const line1 = [src.address_line1, src.address_line2]
-    .map((p) => (typeof p === 'string' ? p.trim() : p))
-    .filter(Boolean)
-    .join(', ')
-  const cityState = [src.city, src.state]
-    .map((p) => (typeof p === 'string' ? p.trim() : p))
-    .filter(Boolean)
-    .join(', ')
-  const tail = [cityState, src.zip ? String(src.zip).trim() : '']
-    .filter(Boolean)
-    .join(' ')
-  const out = [line1, tail].filter(Boolean).join(' · ')
-  return out || '—'
-}
-
-function statusPill(status) {
-  if (status === 'approved') return <StatusPill kind="completed" label="Approved" />
-  if (status === 'declined') return <StatusPill kind="overdue" label="Declined" />
-  return <StatusPill kind="submitted" label="Pending" />
-}
-
-function Section({ title, children }) {
+function SensitiveBlock({ children }) {
   return (
-    <div style={{ marginTop: 22 }}>
-      <div
-        style={{
-          fontFamily: 'var(--font-display)',
-          fontSize: 13,
-          fontWeight: 600,
-          color: 'var(--ink)',
-          textTransform: 'uppercase',
-          letterSpacing: '.05em',
-          marginBottom: 8,
-        }}
-      >
-        {title}
-      </div>
+    <div
+      style={{
+        background: 'var(--paper)',
+        color: 'var(--ink-faint)',
+        border: '1px dashed var(--line)',
+        borderRadius: 'var(--radius-sm)',
+        padding: '14px 16px',
+        fontSize: 13,
+        lineHeight: 1.5,
+      }}
+    >
       {children}
     </div>
   )
 }
 
-function Row({ label, children }) {
+function SectionTitle({ children }) {
+  return (
+    <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: 'var(--ink)' }}>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * Normalized US address block: line1 / line2 / city / state / zip.
+ * `value` is an object shaped like EMPTY_ADDRESS; `onChange(key, val)`.
+ */
+function AddressFields({ idPrefix, value, onChange }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <Field label="Address line 1" htmlFor={`${idPrefix}-line1`}>
+        <input
+          id={`${idPrefix}-line1`}
+          className="input"
+          value={value.address_line1}
+          onChange={(e) => onChange('address_line1', e.target.value)}
+          placeholder="Street address"
+        />
+      </Field>
+      <Field label="Address line 2 (optional)" htmlFor={`${idPrefix}-line2`}>
+        <input
+          id={`${idPrefix}-line2`}
+          className="input"
+          value={value.address_line2}
+          onChange={(e) => onChange('address_line2', e.target.value)}
+          placeholder="Apartment, suite, unit"
+        />
+      </Field>
+      <div style={rowStyle}>
+        <div style={colStyle}>
+          <Field label="City" htmlFor={`${idPrefix}-city`}>
+            <input
+              id={`${idPrefix}-city`}
+              className="input"
+              value={value.city}
+              onChange={(e) => onChange('city', e.target.value)}
+            />
+          </Field>
+        </div>
+        <div style={colStyle}>
+          <Field label="State" htmlFor={`${idPrefix}-state`}>
+            <select
+              id={`${idPrefix}-state`}
+              className="select"
+              value={value.state}
+              onChange={(e) => onChange('state', e.target.value)}
+            >
+              <option value="">Select a state</option>
+              {US_STATES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <div style={colStyle}>
+          <Field label="ZIP" htmlFor={`${idPrefix}-zip`}>
+            <input
+              id={`${idPrefix}-zip`}
+              className="input"
+              value={value.zip}
+              onChange={(e) => onChange('zip', e.target.value)}
+              placeholder="60626"
+            />
+          </Field>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function friendlyError(e) {
+  const msg = (e && (e.message || e.error_description || e.error)) || ''
+  if (/already registered|already exists|user already/i.test(msg)) {
+    return 'An account with this email already exists. Try signing in instead.'
+  }
+  if (/password/i.test(msg) && /8|length|short|weak/i.test(msg)) {
+    return 'Please choose a password with at least 8 characters.'
+  }
+  if (msg) return msg
+  return 'Something went wrong while submitting your application. Please try again.'
+}
+
+export default function Application() {
+  const navigate = useNavigate()
+  const { session, profile, signUp } = useAuth()
+
+  const isResubmit = !!session && profile?.status === 'declined'
+  const profileEmail = profile?.email || session?.user?.email || ''
+
+  const [step, setStep] = useState(1)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const [applicationId, setApplicationId] = useState(null)
+  const [existingProofUrl, setExistingProofUrl] = useState(null)
+
+  // Step 1 — account (new applicants only)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+
+  // Step 1 — personal & contact
+  const [firstName, setFirstName] = useState('')
+  const [middleName, setMiddleName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [dateOfBirth, setDateOfBirth] = useState('')
+  const [phone, setPhone] = useState('')
+  const [address, setAddress] = useState({ ...EMPTY_ADDRESS })
+  const [desiredBuilding, setDesiredBuilding] = useState('')
+  const [desiredFloor, setDesiredFloor] = useState('')
+  const [desiredRoom, setDesiredRoom] = useState('')
+
+  // Step 2 — residency history (no current address — collected in step 1)
+  const [residency, setResidency] = useState({
+    landlord_name: '',
+    landlord_phone: '',
+    monthly_rent: '',
+    move_in: '',
+    move_out: '',
+    reason_for_leaving: '',
+    prior_address: '',
+  })
+
+  // Step 3 — school enrollment
+  const [schoolName, setSchoolName] = useState('')
+  const [studentId, setStudentId] = useState('')
+  const [classStanding, setClassStanding] = useState('')
+  const [expectedGraduation, setExpectedGraduation] = useState('')
+  const [enrollmentStatus, setEnrollmentStatus] = useState('')
+  const [proofFile, setProofFile] = useState(null)
+
+  // Step 4 — guarantor
+  const [guarantor, setGuarantor] = useState({
+    first_name: '',
+    middle_name: '',
+    last_name: '',
+    relationship: '',
+    relationship_other: '',
+    address_line1: '',
+    address_line2: '',
+    city: '',
+    state: '',
+    zip: '',
+    phone: '',
+    email: '',
+    employer: '',
+    income: '',
+    print_name_ack: '',
+  })
+
+  // Step 5 — co-applicants
+  const [coApplicants, setCoApplicants] = useState([])
+
+  // Step 6 — references + consent (no previous landlord)
+  const [personalRefs, setPersonalRefs] = useState([{ name: '', phone: '', relationship: '' }])
+  const [consentCredit, setConsentCredit] = useState(false)
+  const [consentCriminal, setConsentCriminal] = useState(false)
+  const [consentRentalHistory, setConsentRentalHistory] = useState(false)
+  const [applicantPrintNameAck, setApplicantPrintNameAck] = useState('')
+
+  // Prefill for declined re-apply
+  useEffect(() => {
+    if (!isResubmit || !profile?.id) return
+    let cancelled = false
+    ;(async () => {
+      const { data, error: fetchErr } = await supabase
+        .from('applications')
+        .select('*')
+        .eq('user_id', profile.id)
+        .eq('status', 'declined')
+        .maybeSingle()
+      if (cancelled) return
+      if (fetchErr) {
+        setError('We could not load your previous application. You can still fill it out below.')
+        return
+      }
+      if (!data) return
+      setApplicationId(data.id)
+
+      setFirstName(data.first_name || '')
+      setMiddleName(data.middle_name || '')
+      setLastName(data.last_name || '')
+      setDateOfBirth(data.date_of_birth || '')
+      setPhone(data.phone || '')
+      setAddress({
+        address_line1: data.address_line1 || '',
+        address_line2: data.address_line2 || '',
+        city: data.city || '',
+        state: data.state || '',
+        zip: data.zip || '',
+      })
+      setDesiredBuilding(data.desired_building || '')
+      setDesiredFloor(data.desired_floor || '')
+      setDesiredRoom(data.desired_room || '')
+
+      const rh = data.residency_history || {}
+      setResidency({
+        landlord_name: rh.landlord_name || '',
+        landlord_phone: rh.landlord_phone || '',
+        monthly_rent: rh.monthly_rent || '',
+        move_in: rh.move_in || '',
+        move_out: rh.move_out || '',
+        reason_for_leaving: rh.reason_for_leaving || '',
+        prior_address: rh.prior_address || '',
+      })
+
+      setSchoolName(data.school_name || '')
+      setStudentId(data.student_id || '')
+      setClassStanding(data.class_standing || '')
+      setExpectedGraduation(data.expected_graduation || '')
+      setEnrollmentStatus(data.enrollment_status || '')
+      setExistingProofUrl(data.proof_of_enrollment_url || null)
+
+      const g = data.guarantor || {}
+      const storedRel = g.relationship || ''
+      const isKnownRel = RELATIONSHIP_OPTIONS.includes(storedRel)
+      setGuarantor({
+        first_name: g.first_name || '',
+        middle_name: g.middle_name || '',
+        last_name: g.last_name || '',
+        relationship: storedRel ? (isKnownRel ? storedRel : 'Other') : '',
+        relationship_other: storedRel && !isKnownRel ? storedRel : '',
+        address_line1: g.address_line1 || '',
+        address_line2: g.address_line2 || '',
+        city: g.city || '',
+        state: g.state || '',
+        zip: g.zip || '',
+        phone: g.phone || '',
+        email: g.email || '',
+        employer: g.employer || '',
+        income: g.income || '',
+        print_name_ack: g.print_name_ack || '',
+      })
+
+      setCoApplicants(
+        Array.isArray(data.co_applicants)
+          ? data.co_applicants.map((c) => ({
+              full_name: c.full_name || '',
+              email: c.email || '',
+              note: c.note || '',
+            }))
+          : []
+      )
+
+      const refs = data.references || {}
+      const personal = Array.isArray(refs.personal) ? refs.personal : []
+      setPersonalRefs(
+        personal.length
+          ? personal.map((p) => ({
+              name: p.name || '',
+              phone: p.phone || '',
+              relationship: p.relationship || '',
+            }))
+          : [{ name: '', phone: '', relationship: '' }]
+      )
+
+      setConsentCredit(!!data.consent_credit)
+      setConsentCriminal(!!data.consent_criminal)
+      setConsentRentalHistory(!!data.consent_rental_history)
+      // 重新送出時必須重新確認一次，不預填舊的 acknowledgment
+      setApplicantPrintNameAck('')
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isResubmit, profile?.id])
+
+  const updateAddress = (key, val) => setAddress((a) => ({ ...a, [key]: val }))
+  const updateGuarantor = (key, val) => setGuarantor((g) => ({ ...g, [key]: val }))
+  const updateResidency = (key, val) => setResidency((r) => ({ ...r, [key]: val }))
+
+  // Co-applicants
+  const addCoApplicant = () =>
+    setCoApplicants((a) => [...a, { full_name: '', email: '', note: '' }])
+  const removeCoApplicant = (i) => setCoApplicants((a) => a.filter((_, idx) => idx !== i))
+  const updateCoApplicant = (i, key, val) =>
+    setCoApplicants((a) => a.map((row, idx) => (idx === i ? { ...row, [key]: val } : row)))
+
+  // Personal references
+  const addPersonalRef = () =>
+    setPersonalRefs((a) => [...a, { name: '', phone: '', relationship: '' }])
+  const removePersonalRef = (i) => setPersonalRefs((a) => a.filter((_, idx) => idx !== i))
+  const updatePersonalRef = (i, key, val) =>
+    setPersonalRefs((a) => a.map((row, idx) => (idx === i ? { ...row, [key]: val } : row)))
+
+  // Proof of enrollment (required)
+  const hasProof = !!proofFile || !!existingProofUrl
+
+  function onProofChange(e) {
+    const file = e.target.files?.[0] || null
+    if (!file) {
+      setProofFile(null)
+      return
+    }
+    const type = file.type || ''
+    const isAllowed = type.startsWith('image/') || type === 'application/pdf'
+    if (!isAllowed) {
+      setProofFile(null)
+      e.target.value = ''
+      setError('Please upload an image or a PDF file.')
+      return
+    }
+    setError('')
+    setProofFile(file)
+  }
+
+  function resolvedGuarantorRelationship() {
+    return guarantor.relationship === 'Other'
+      ? guarantor.relationship_other.trim()
+      : guarantor.relationship
+  }
+
+  function validateStep(s) {
+    if (s === 1) {
+      if (!isResubmit) {
+        if (!email.trim()) return 'Please enter your email address.'
+        if (password.length < 8) return 'Password must be at least 8 characters.'
+        if (password !== confirmPassword) return 'The passwords do not match.'
+      }
+      if (!firstName.trim()) return 'Please enter your first name.'
+      if (!lastName.trim()) return 'Please enter your last name.'
+      if (!dateOfBirth) return 'Please enter your date of birth.'
+      if (!address.address_line1.trim()) return 'Please enter your address line 1.'
+      if (!address.city.trim()) return 'Please enter your city.'
+      if (!address.state) return 'Please select your state.'
+      if (!address.zip.trim()) return 'Please enter your ZIP code.'
+      if (!phone.trim()) return 'Please enter your phone number.'
+      if (!desiredBuilding) return 'Please select the building you would like to apply for.'
+      if (!desiredFloor) return 'Please select a floor.'
+      if (!desiredRoom) return 'Please select a room.'
+      return null
+    }
+    if (s === 2) {
+      if (!residency.landlord_name.trim()) return 'Please enter your current landlord name.'
+      if (!residency.landlord_phone.trim()) return 'Please enter your landlord phone number.'
+      if (!String(residency.monthly_rent).trim()) return 'Please enter your monthly rent.'
+      if (!residency.move_in) return 'Please enter your move-in date.'
+      if (!residency.reason_for_leaving.trim()) return 'Please enter your reason for leaving.'
+      return null
+    }
+    if (s === 3) {
+      if (!schoolName.trim()) return 'Please enter your school name.'
+      if (!studentId.trim()) return 'Please enter your student ID.'
+      if (!classStanding.trim()) return 'Please enter your year / class standing.'
+      if (!expectedGraduation.trim()) return 'Please enter your expected graduation.'
+      if (!enrollmentStatus) return 'Please select your enrollment status.'
+      if (!hasProof) return 'Please upload your proof of enrollment (image or PDF).'
+      return null
+    }
+    if (s === 4) {
+      if (GUARANTOR_REQUIRED) {
+        if (!guarantor.first_name.trim()) return 'Please enter the guarantor first name.'
+        if (!guarantor.last_name.trim()) return 'Please enter the guarantor last name.'
+        if (!guarantor.relationship) return 'Please select the guarantor relationship.'
+        if (guarantor.relationship === 'Other' && !guarantor.relationship_other.trim())
+          return 'Please describe the guarantor relationship.'
+        if (!guarantor.address_line1.trim()) return 'Please enter the guarantor address line 1.'
+        if (!guarantor.city.trim()) return 'Please enter the guarantor city.'
+        if (!guarantor.state) return 'Please select the guarantor state.'
+        if (!guarantor.zip.trim()) return 'Please enter the guarantor ZIP code.'
+        if (!guarantor.phone.trim()) return 'Please enter the guarantor phone number.'
+        if (!guarantor.email.trim()) return 'Please enter the guarantor email.'
+        if (!guarantor.employer.trim()) return 'Please enter the guarantor employer.'
+        if (!String(guarantor.income).trim()) return 'Please enter the guarantor income.'
+        if (!guarantor.print_name_ack.trim())
+          return 'Please have the guarantor print their full name to acknowledge.'
+      }
+      return null
+    }
+    if (s === 5) {
+      return null
+    }
+    if (s === 6) {
+      if (!consentCredit || !consentCriminal || !consentRentalHistory)
+        return 'You must authorize all three screening checks to submit your application.'
+      if (!applicantPrintNameAck.trim())
+        return 'Please print your full name to acknowledge and submit your application.'
+      return null
+    }
+    return null
+  }
+
+  function next() {
+    const err = validateStep(step)
+    if (err) {
+      setError(err)
+      return
+    }
+    setError('')
+    setStep((s) => Math.min(6, s + 1))
+  }
+
+  function back() {
+    setError('')
+    setStep((s) => Math.max(1, s - 1))
+  }
+
+  async function uploadProof(userId) {
+    if (!proofFile) {
+      if (existingProofUrl) return existingProofUrl
+      throw new Error('Proof of enrollment is required. Please upload an image or PDF.')
+    }
+    const parts = proofFile.name.split('.')
+    const ext = parts.length > 1 ? parts.pop() : 'dat'
+    const path = `${userId}/${Date.now()}.${ext}`
+    const { error: upErr } = await supabase.storage.from('enrollment-proofs').upload(path, proofFile)
+    if (upErr) throw upErr
+    return path
+  }
+
+  function buildPayload(proofUrl) {
+    const ackDate = todayIsoDate()
+    return {
+      first_name: firstName,
+      middle_name: middleName,
+      last_name: lastName,
+      address_line1: address.address_line1,
+      address_line2: address.address_line2,
+      city: address.city,
+      state: address.state,
+      zip: address.zip,
+      phone,
+      email: isResubmit ? profileEmail : email,
+      date_of_birth: dateOfBirth,
+      desired_building: desiredBuilding,
+      desired_floor: desiredFloor,
+      desired_room: desiredRoom,
+      // 敏感欄位（ssn_or_itin / drivers_license）永不蒐集、永不出現在 payload
+      residency_history: {
+        landlord_name: residency.landlord_name,
+        landlord_phone: residency.landlord_phone,
+        monthly_rent: residency.monthly_rent,
+        move_in: residency.move_in,
+        move_out: residency.move_out,
+        reason_for_leaving: residency.reason_for_leaving,
+        prior_address: residency.prior_address,
+      },
+      school_name: schoolName,
+      student_id: studentId,
+      class_standing: classStanding,
+      expected_graduation: expectedGraduation,
+      enrollment_status: enrollmentStatus,
+      proof_of_enrollment_url: proofUrl,
+      guarantor: {
+        first_name: guarantor.first_name,
+        middle_name: guarantor.middle_name,
+        last_name: guarantor.last_name,
+        relationship: resolvedGuarantorRelationship(),
+        address_line1: guarantor.address_line1,
+        address_line2: guarantor.address_line2,
+        city: guarantor.city,
+        state: guarantor.state,
+        zip: guarantor.zip,
+        phone: guarantor.phone,
+        email: guarantor.email,
+        employer: guarantor.employer,
+        income: guarantor.income,
+        print_name_ack: guarantor.print_name_ack,
+        ack_date: guarantor.print_name_ack.trim() ? ackDate : null,
+        // guarantor_ssn 永不蒐集、永不出現在 payload
+      },
+      guarantor_required: GUARANTOR_REQUIRED,
+      co_applicants: coApplicants,
+      references: {
+        personal: personalRefs,
+      },
+      consent_credit: consentCredit,
+      consent_criminal: consentCriminal,
+      consent_rental_history: consentRentalHistory,
+      consent_at: new Date().toISOString(),
+      applicant_print_name_ack: applicantPrintNameAck,
+      applicant_ack_date: applicantPrintNameAck.trim() ? ackDate : null,
+    }
+  }
+
+  async function handleSubmit() {
+    for (let s = 1; s <= 6; s += 1) {
+      const stepErr = validateStep(s)
+      if (stepErr) {
+        setError(stepErr)
+        setStep(s)
+        return
+      }
+    }
+    setError('')
+    setLoading(true)
+    try {
+      if (isResubmit) {
+        const userId = profile.id
+        const proofUrl = await uploadProof(userId)
+        const payload = buildPayload(proofUrl)
+        const { error: rpcErr } = await supabase.rpc('resubmit_application', {
+          p_application_id: applicationId,
+          p_payload: payload,
+        })
+        if (rpcErr) throw rpcErr
+        navigate('/pending')
+      } else {
+        const { error: signErr } = await signUp(email, password, {
+          first_name: firstName,
+          last_name: lastName,
+        })
+        if (signErr) throw signErr
+        const { data: userData, error: userErr } = await supabase.auth.getUser()
+        if (userErr) throw userErr
+        const userId = userData?.user?.id
+        if (!userId) throw new Error('We could not confirm your new account. Please try again.')
+        const proofUrl = await uploadProof(userId)
+        const payload = buildPayload(proofUrl)
+        const { error: insErr } = await supabase
+          .from('applications')
+          .insert({ ...payload, user_id: userId })
+        if (insErr) throw insErr
+        navigate('/pending')
+      }
+    } catch (e) {
+      setError(friendlyError(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div
       style={{
+        minHeight: '100vh',
+        background: 'var(--paper)',
         display: 'flex',
-        flexWrap: 'wrap',
-        gap: 12,
-        padding: '6px 0',
-        borderBottom: '1px solid var(--line)',
+        justifyContent: 'center',
+        padding: '32px 16px',
       }}
     >
-      <div style={{ minWidth: 170, color: 'var(--ink-soft)', fontSize: 13 }}>{label}</div>
-      <div style={{ flex: '1 1 200px', color: 'var(--ink)', fontSize: 14 }}>
-        {children === null || children === undefined ? '—' : children}
-      </div>
-    </div>
-  )
-}
+      <div style={{ width: '100%', maxWidth: 700 }}>
+        <PageHead
+          title="Rental application"
+          subtitle={`Step ${step} of 6 — ${STEP_TITLES[step - 1]}`}
+        />
 
-const check = (b) => (
-  <span style={{ color: b ? 'var(--success)' : 'var(--danger)', fontWeight: 700 }}>
-    {b ? '✓' : '✗'}
-  </span>
-)
-
-const TABS = [
-  { key: 'pending', label: 'Pending' },
-  { key: 'approved', label: 'Approved' },
-  { key: 'declined', label: 'Declined' },
-]
-
-// ---- detail sections -------------------------------------------------------
-
-function Detail({ app }) {
-  const rh = app.residency_history || null
-  const g = app.guarantor || null
-  const co = Array.isArray(app.co_applicants) ? app.co_applicants : []
-  const refs = app.references || {}
-  const personal = Array.isArray(refs.personal) ? refs.personal : []
-
-  return (
-    <div>
-      {app.status === 'approved' && (
-        <div
-          style={{
-            background: 'var(--success-wash)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--radius-sm)',
-            padding: 12,
-            marginTop: 12,
-          }}
-        >
-          <div style={{ fontWeight: 600, color: 'var(--ink)' }}>Approved {d(app.reviewed_at)}</div>
-        </div>
-      )}
-
-      {app.status === 'declined' && (
-        <div
-          style={{
-            background: 'var(--danger-wash)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--radius-sm)',
-            padding: 12,
-            marginTop: 12,
-          }}
-        >
-          <div style={{ fontWeight: 600, color: 'var(--ink)' }}>Declined {d(app.reviewed_at)}</div>
-          <div style={{ color: 'var(--ink-soft)', marginTop: 4, fontSize: 14 }}>
-            {v(app.decline_note)}
-          </div>
-        </div>
-      )}
-
-      <Section title="Applicant">
-        <Row label="Full legal name">{composeName(app)}</Row>
-        <Row label="Date of birth">{d(app.date_of_birth)}</Row>
-        <Row label="Email">{v(app.email)}</Row>
-        <Row label="Phone">{v(app.phone)}</Row>
-        <Row label="Address">{composeAddress(app)}</Row>
-        <Row label="Desired unit / room">{desiredUnitFull(app)}</Row>
-        <Row label="Submitted">{d(app.submitted_at)}</Row>
-        <div
-          style={{
-            color: 'var(--ink-faint)',
-            fontSize: 13,
-            fontStyle: 'italic',
-            marginTop: 8,
-          }}
-        >
-          SSN / ID collected through screening partner — not stored in this portal.
-        </div>
-      </Section>
-
-      <Section title="Applicant acknowledgment">
-        <Row label="Printed name">{v(app.applicant_print_name_ack)}</Row>
-        <Row label="Acknowledged on">{d(app.applicant_ack_date)}</Row>
-      </Section>
-
-      <Section title="Residency history">
-        {rh ? (
-          <>
-            <Row label="Landlord name">{v(rh.landlord_name)}</Row>
-            <Row label="Landlord phone">{v(rh.landlord_phone)}</Row>
-            <Row label="Monthly rent">{v(rh.monthly_rent)}</Row>
-            <Row label="Move in">{d(rh.move_in)}</Row>
-            <Row label="Move out">{d(rh.move_out)}</Row>
-            <Row label="Reason for leaving">{v(rh.reason_for_leaving)}</Row>
-            <Row label="Prior address">{v(rh.prior_address)}</Row>
-          </>
-        ) : (
-          <div style={{ color: 'var(--ink-faint)' }}>None provided</div>
-        )}
-      </Section>
-
-      <Section title="School">
-        <Row label="School name">{v(app.school_name)}</Row>
-        <Row label="Student ID">{v(app.student_id)}</Row>
-        <Row label="Class standing">{v(app.class_standing)}</Row>
-        <Row label="Expected graduation">{v(app.expected_graduation)}</Row>
-        <Row label="Enrollment status">{v(app.enrollment_status)}</Row>
-        <Row label="Proof of enrollment">
-          {app.proof_of_enrollment_url ? 'Proof attached' : 'Not provided'}
-        </Row>
-      </Section>
-
-      <Section title="Guarantor">
-        <Row label="Guarantor required">{app.guarantor_required ? 'Yes' : 'No'}</Row>
-        {g ? (
-          <>
-            <Row label="Name">{composeName(g)}</Row>
-            <Row label="Relationship">{v(g.relationship)}</Row>
-            <Row label="Address">{composeAddress(g)}</Row>
-            <Row label="Phone">{v(g.phone)}</Row>
-            <Row label="Email">{v(g.email)}</Row>
-            <Row label="Employer">{v(g.employer)}</Row>
-            <Row label="Income">{v(g.income)}</Row>
-            <Row label="Printed name">{v(g.print_name_ack)}</Row>
-            <Row label="Acknowledged on">{d(g.ack_date)}</Row>
-          </>
-        ) : (
-          <div style={{ color: 'var(--ink-faint)' }}>No guarantor on file.</div>
-        )}
-      </Section>
-
-      <Section title="Co-applicants">
-        {co.length > 0 ? (
-          co.map((c, i) => (
-            <div
-              key={i}
-              style={{ padding: '8px 0', borderBottom: '1px solid var(--line)' }}
-            >
-              <div style={{ fontWeight: 600, color: 'var(--ink)' }}>{v(c.full_name)}</div>
-              <div style={{ color: 'var(--ink-soft)', fontSize: 13 }}>{v(c.email)}</div>
-              {c.note ? (
-                <div style={{ color: 'var(--ink-faint)', fontSize: 13, marginTop: 2 }}>
-                  {c.note}
-                </div>
-              ) : null}
-            </div>
-          ))
-        ) : (
-          <div style={{ color: 'var(--ink-faint)' }}>None listed</div>
-        )}
-      </Section>
-
-      <Section title="References">
-        <div style={{ color: 'var(--ink-soft)', fontSize: 13, marginBottom: 4 }}>
-          Personal references
-        </div>
-        {personal.length > 0 ? (
-          personal.map((p, i) => (
-            <div
-              key={i}
-              style={{ padding: '8px 0', borderBottom: '1px solid var(--line)' }}
-            >
-              <div style={{ fontWeight: 600, color: 'var(--ink)' }}>{v(p.name)}</div>
-              <div style={{ color: 'var(--ink-soft)', fontSize: 13 }}>
-                {v(p.phone)}
-                {p.relationship ? ` · ${p.relationship}` : ''}
-              </div>
-            </div>
-          ))
-        ) : (
-          <div style={{ color: 'var(--ink-faint)' }}>None listed</div>
-        )}
-      </Section>
-
-      <Section title="Screening consent">
-        <Row label="Credit check">{check(!!app.consent_credit)}</Row>
-        <Row label="Criminal background">{check(!!app.consent_criminal)}</Row>
-        <Row label="Rental history">{check(!!app.consent_rental_history)}</Row>
-        <Row label="Consented at">{d(app.consent_at)}</Row>
-      </Section>
-    </div>
-  )
-}
-
-// ---- page ------------------------------------------------------------------
-
-export default function Applications() {
-  const [apps, setApps] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-
-  const [tab, setTab] = useState('pending')
-  const [selectedId, setSelectedId] = useState(null)
-
-  const [actionLoading, setActionLoading] = useState(false)
-  const [actionError, setActionError] = useState(null)
-  const [toast, setToast] = useState(null)
-
-  const [declineOpen, setDeclineOpen] = useState(false)
-  const [declineNote, setDeclineNote] = useState('')
-
-  async function fetchApps() {
-    setLoading(true)
-    setError(null)
-    const { data, error: err } = await supabase
-      .from('applications')
-      .select('*')
-      .order('submitted_at', { ascending: false })
-    if (err) {
-      setError('Could not load applications. Please try again.')
-      setApps([])
-      setLoading(false)
-      return
-    }
-    setApps(Array.isArray(data) ? data : [])
-    setLoading(false)
-  }
-
-  useEffect(() => {
-    fetchApps()
-  }, [])
-
-  const list = apps.filter((a) => a.status === tab)
-  const pendingCount = apps.filter((a) => a.status === 'pending').length
-  const selected = apps.find((a) => a.id === selectedId) || null
-
-  // keep a valid selection within the active tab
-  useEffect(() => {
-    if (list.length === 0) {
-      if (selectedId !== null) setSelectedId(null)
-      return
-    }
-    if (!list.some((a) => a.id === selectedId)) {
-      setSelectedId(list[0].id)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apps, tab])
-
-  function resetActionUI() {
-    setDeclineOpen(false)
-    setDeclineNote('')
-    setActionError(null)
-  }
-
-  function selectApp(id) {
-    setSelectedId(id)
-    resetActionUI()
-    setToast(null)
-  }
-
-  function changeTab(t) {
-    setTab(t)
-    setSelectedId(null)
-    resetActionUI()
-    setToast(null)
-  }
-
-  async function handleApprove(id) {
-    setActionLoading(true)
-    setActionError(null)
-    const { error: err } = await supabase.rpc('approve_application', { p_application_id: id })
-    if (err) {
-      setActionError('Could not approve this application. Please try again.')
-      setActionLoading(false)
-      return
-    }
-    setActionLoading(false)
-    setToast('Application approved.')
-    await fetchApps()
-  }
-
-  async function handleDecline(id) {
-    const note = declineNote.trim()
-    if (!note) {
-      setActionError('A decline note is required.')
-      return
-    }
-    setActionLoading(true)
-    setActionError(null)
-    const { error: err } = await supabase.rpc('decline_application', {
-      p_application_id: id,
-      p_note: note,
-    })
-    if (err) {
-      setActionError('Could not decline this application. Please try again.')
-      setActionLoading(false)
-      return
-    }
-    setActionLoading(false)
-    resetActionUI()
-    setToast('Application declined.')
-    await fetchApps()
-  }
-
-  return (
-    <div>
-      <PageHead title="Applications" subtitle="Review and decide on rental applications" />
-
-      <div
-        style={{
-          background: 'var(--accent-wash)',
-          border: '1px solid var(--line)',
-          borderRadius: 'var(--radius-sm)',
-          padding: '12px 16px',
-          margin: '16px 0',
-          color: 'var(--ink-soft)',
-          fontSize: 13,
-          lineHeight: 1.5,
-        }}
-      >
-        <strong style={{ color: 'var(--ink)' }}>Fair Housing reminder:</strong> evaluate every
-        application on the same objective criteria. Do not consider race, color, religion, national
-        origin, sex, familial status, or disability.
-      </div>
-
-      <div
-        style={{
-          display: 'flex',
-          gap: 4,
-          borderBottom: '1px solid var(--line)',
-          marginBottom: 16,
-        }}
-      >
-        {TABS.map((t) => {
-          const active = tab === t.key
-          const suffix = t.key === 'pending' && pendingCount > 0 ? ` (${pendingCount})` : ''
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => changeTab(t.key)}
-              style={{
-                appearance: 'none',
-                border: 'none',
-                background: 'transparent',
-                cursor: 'pointer',
-                padding: '10px 16px',
-                fontSize: 14,
-                fontFamily: 'var(--font-body)',
-                fontWeight: active ? 600 : 500,
-                color: active ? 'var(--primary)' : 'var(--ink-soft)',
-                borderBottom: active ? '2px solid var(--primary)' : '2px solid transparent',
-              }}
-            >
-              {t.label}
-              {suffix}
-            </button>
-          )
-        })}
-      </div>
-
-      {toast && (
-        <div
-          style={{
-            background: 'var(--success-wash)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--radius-sm)',
-            padding: '10px 14px',
-            marginBottom: 16,
-            color: 'var(--ink)',
-            fontSize: 14,
-          }}
-        >
-          {toast}
-        </div>
-      )}
-
-      {loading ? (
-        <Card>
-          <div className="card-pad" style={{ color: 'var(--ink-soft)' }}>
-            Loading applications…
-          </div>
-        </Card>
-      ) : error ? (
-        <Card>
-          <div className="card-pad">
-            <div style={{ color: 'var(--danger)', marginBottom: 12 }}>{error}</div>
-            <Button variant="primary" onClick={fetchApps}>
-              Retry
-            </Button>
-          </div>
-        </Card>
-      ) : (
+        {/* Progress indicator */}
         <div
           style={{
             display: 'flex',
             flexWrap: 'wrap',
-            gap: 16,
-            alignItems: 'flex-start',
+            gap: 8,
+            alignItems: 'center',
+            margin: '4px 0 20px',
           }}
         >
-          {/* left: list */}
-          <div style={{ flex: '1 1 280px', minWidth: 260 }}>
-            <Card>
-              <div className="card-pad">
-                {list.length === 0 ? (
-                  <EmptyState
-                    title="No applications"
-                    body={
-                      tab === 'pending'
-                        ? 'No applications waiting for review'
-                        : tab === 'approved'
-                        ? 'No approved applications yet'
-                        : 'No declined applications yet'
-                    }
+          {STEP_TITLES.map((title, i) => {
+            const n = i + 1
+            const active = n === step
+            const done = n < step
+            return (
+              <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 13,
+                    fontFamily: 'var(--font-mono)',
+                    background: active
+                      ? 'var(--primary)'
+                      : done
+                      ? 'var(--primary-wash)'
+                      : 'var(--surface)',
+                    color: active ? 'var(--primary-ink)' : done ? 'var(--primary)' : 'var(--ink-faint)',
+                    border: `1px solid ${active ? 'var(--primary)' : 'var(--line)'}`,
+                  }}
+                >
+                  {n}
+                </div>
+                {n < 6 && (
+                  <div
+                    style={{
+                      width: 14,
+                      height: 1,
+                      background: 'var(--line)',
+                    }}
                   />
-                ) : (
-                  list.map((a) => {
-                    const active = a.id === selectedId
-                    return (
-                      <div
-                        key={a.id}
-                        onClick={() => selectApp(a.id)}
-                        style={{
-                          padding: '12px 14px',
-                          cursor: 'pointer',
-                          borderRadius: 'var(--radius-sm)',
-                          border: '1px solid',
-                          borderColor: active ? 'var(--primary)' : 'var(--line)',
-                          background: active ? 'var(--primary-wash)' : 'var(--surface)',
-                          marginBottom: 8,
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            gap: 8,
-                          }}
-                        >
-                          <div style={{ fontWeight: 600, color: 'var(--ink)' }}>
-                            {composeName(a)}
-                          </div>
-                          {statusPill(a.status)}
-                        </div>
-                        <div style={{ color: 'var(--ink-soft)', fontSize: 13, marginTop: 4 }}>
-                          {desiredUnitShort(a)}
-                        </div>
-                        <div style={{ color: 'var(--ink-faint)', fontSize: 12, marginTop: 2 }}>
-                          {d(a.submitted_at)}
-                        </div>
-                      </div>
-                    )
-                  })
                 )}
               </div>
-            </Card>
-          </div>
-
-          {/* right: detail */}
-          <div style={{ flex: '2 1 360px', minWidth: 300 }}>
-            <Card>
-              <div className="card-pad">
-                {!selected ? (
-                  <div style={{ color: 'var(--ink-faint)' }}>
-                    Select an application to view details.
-                  </div>
-                ) : (
-                  <>
-                    <CardHead
-                      title={composeName(selected)}
-                      action={statusPill(selected.status)}
-                    />
-
-                    <Detail app={selected} />
-
-                    {tab === 'pending' && (
-                      <div
-                        style={{
-                          marginTop: 24,
-                          paddingTop: 16,
-                          borderTop: '1px solid var(--line)',
-                        }}
-                      >
-                        {actionError && (
-                          <div style={{ color: 'var(--danger)', marginBottom: 12, fontSize: 14 }}>
-                            {actionError}
-                          </div>
-                        )}
-
-                        {!declineOpen ? (
-                          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                            <Button
-                              variant="primary"
-                              onClick={() => handleApprove(selected.id)}
-                              loading={actionLoading}
-                              disabled={actionLoading}
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              onClick={() => {
-                                setDeclineOpen(true)
-                                setActionError(null)
-                              }}
-                              disabled={actionLoading}
-                            >
-                              Decline
-                            </Button>
-                          </div>
-                        ) : (
-                          <div>
-                            <Field label="Reason for decline (required)" htmlFor="decline-note">
-                              <textarea
-                                id="decline-note"
-                                className="textarea"
-                                rows={4}
-                                value={declineNote}
-                                onChange={(e) => setDeclineNote(e.target.value)}
-                                placeholder="Explain the basis for this decision using objective criteria only."
-                              />
-                            </Field>
-                            <div
-                              style={{
-                                display: 'flex',
-                                gap: 12,
-                                marginTop: 12,
-                                flexWrap: 'wrap',
-                              }}
-                            >
-                              <Button
-                                variant="primary"
-                                onClick={() => handleDecline(selected.id)}
-                                loading={actionLoading}
-                                disabled={actionLoading || !declineNote.trim()}
-                              >
-                                Confirm decline
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                onClick={() => {
-                                  setDeclineOpen(false)
-                                  setDeclineNote('')
-                                  setActionError(null)
-                                }}
-                                disabled={actionLoading}
-                              >
-                                Cancel
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            </Card>
-          </div>
+            )
+          })}
         </div>
-      )}
+
+        <Card>
+          <div className="card-pad">
+            {/* STEP 1 */}
+            {step === 1 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {!isResubmit ? (
+                  <>
+                    <div style={rowStyle}>
+                      <div style={colStyle}>
+                        <Field label="Email" htmlFor="app-email">
+                          <input
+                            id="app-email"
+                            className="input"
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="you@example.com"
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                    <div style={rowStyle}>
+                      <div style={colStyle}>
+                        <Field label="Password" htmlFor="app-password">
+                          <input
+                            id="app-password"
+                            className="input"
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="At least 8 characters"
+                          />
+                        </Field>
+                      </div>
+                      <div style={colStyle}>
+                        <Field label="Confirm password" htmlFor="app-confirm">
+                          <input
+                            id="app-confirm"
+                            className="input"
+                            type="password"
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <Field label="Email" htmlFor="app-email-ro">
+                    <input id="app-email-ro" className="input" type="email" value={profileEmail} readOnly disabled />
+                  </Field>
+                )}
+
+                <div style={rowStyle}>
+                  <div style={nameColStyle}>
+                    <Field label="First name" htmlFor="app-first">
+                      <input
+                        id="app-first"
+                        className="input"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={nameColStyle}>
+                    <Field label="Middle name (optional)" htmlFor="app-middle">
+                      <input
+                        id="app-middle"
+                        className="input"
+                        value={middleName}
+                        onChange={(e) => setMiddleName(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={nameColStyle}>
+                    <Field label="Last name" htmlFor="app-last">
+                      <input
+                        id="app-last"
+                        className="input"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Date of birth" htmlFor="app-dob">
+                      <input
+                        id="app-dob"
+                        className="input"
+                        type="date"
+                        value={dateOfBirth}
+                        onChange={(e) => setDateOfBirth(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Phone" htmlFor="app-phone">
+                      <input
+                        id="app-phone"
+                        className="input"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <SectionTitle>Current address</SectionTitle>
+                  <AddressFields idPrefix="app-addr" value={address} onChange={updateAddress} />
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <SectionTitle>Where you'd like to live</SectionTitle>
+                  <Field label="Building" htmlFor="app-building">
+                    <select
+                      id="app-building"
+                      className="select"
+                      value={desiredBuilding}
+                      onChange={(e) => setDesiredBuilding(e.target.value)}
+                    >
+                      <option value="">Select a building</option>
+                      {BUILDING_OPTIONS.map((b) => (
+                        <option key={b.value} value={b.value}>
+                          {b.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <div style={rowStyle}>
+                    <div style={colStyle}>
+                      <Field label="Floor" htmlFor="app-floor">
+                        <select
+                          id="app-floor"
+                          className="select"
+                          value={desiredFloor}
+                          onChange={(e) => setDesiredFloor(e.target.value)}
+                        >
+                          <option value="">Select a floor</option>
+                          {FLOOR_OPTIONS.map((f) => (
+                            <option key={f.value} value={f.value}>
+                              {f.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    </div>
+                    <div style={colStyle}>
+                      <Field label="Room" htmlFor="app-room">
+                        <select
+                          id="app-room"
+                          className="select"
+                          value={desiredRoom}
+                          onChange={(e) => setDesiredRoom(e.target.value)}
+                        >
+                          <option value="">Select a room</option>
+                          {ROOM_OPTIONS.map((r) => (
+                            <option key={r} value={r}>
+                              Room {r}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    </div>
+                  </div>
+                </div>
+
+                <SensitiveBlock>{SENSITIVE_COPY}</SensitiveBlock>
+              </div>
+            )}
+
+            {/* STEP 2 */}
+            {step === 2 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Current landlord name" htmlFor="res-ll-name">
+                      <input
+                        id="res-ll-name"
+                        className="input"
+                        value={residency.landlord_name}
+                        onChange={(e) => updateResidency('landlord_name', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Landlord phone" htmlFor="res-ll-phone">
+                      <input
+                        id="res-ll-phone"
+                        className="input"
+                        value={residency.landlord_phone}
+                        onChange={(e) => updateResidency('landlord_phone', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                <Field label="Monthly rent" htmlFor="res-rent">
+                  <input
+                    id="res-rent"
+                    className="input"
+                    value={residency.monthly_rent}
+                    onChange={(e) => updateResidency('monthly_rent', e.target.value)}
+                    placeholder="e.g. 850"
+                  />
+                </Field>
+
+                <div style={rowStyle}>
+                  <div style={halfStyle}>
+                    <Field label="Move-in date (current residence)" htmlFor="res-in">
+                      <input
+                        id="res-in"
+                        className="input"
+                        type="date"
+                        value={residency.move_in}
+                        onChange={(e) => updateResidency('move_in', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={halfStyle}>
+                    <Field
+                      label="Move-out date (leave blank if you still live here)"
+                      htmlFor="res-out"
+                    >
+                      <input
+                        id="res-out"
+                        className="input"
+                        type="date"
+                        value={residency.move_out}
+                        onChange={(e) => updateResidency('move_out', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                <Field label="Reason for leaving" htmlFor="res-reason">
+                  <textarea
+                    id="res-reason"
+                    className="textarea"
+                    value={residency.reason_for_leaving}
+                    onChange={(e) => updateResidency('reason_for_leaving', e.target.value)}
+                  />
+                </Field>
+
+                <Field
+                  label="Prior address (only if you've lived at your current address less than 2 years)"
+                  htmlFor="res-prior"
+                >
+                  <textarea
+                    id="res-prior"
+                    className="textarea"
+                    value={residency.prior_address}
+                    onChange={(e) => updateResidency('prior_address', e.target.value)}
+                    placeholder="Street, city, state, ZIP — optional"
+                  />
+                </Field>
+              </div>
+            )}
+
+            {/* STEP 3 */}
+            {step === 3 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="School name" htmlFor="sch-name">
+                      <input
+                        id="sch-name"
+                        className="input"
+                        value={schoolName}
+                        onChange={(e) => setSchoolName(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Student ID" htmlFor="sch-id">
+                      <input
+                        id="sch-id"
+                        className="input"
+                        value={studentId}
+                        onChange={(e) => setStudentId(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Year / class standing" htmlFor="sch-standing">
+                      <input
+                        id="sch-standing"
+                        className="input"
+                        value={classStanding}
+                        onChange={(e) => setClassStanding(e.target.value)}
+                        placeholder="e.g. Junior"
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Expected graduation" htmlFor="sch-grad">
+                      <input
+                        id="sch-grad"
+                        className="input"
+                        value={expectedGraduation}
+                        onChange={(e) => setExpectedGraduation(e.target.value)}
+                        placeholder="e.g. May 2027"
+                      />
+                    </Field>
+                  </div>
+                </div>
+                <Field label="Enrollment status" htmlFor="sch-status">
+                  <select
+                    id="sch-status"
+                    className="select"
+                    value={enrollmentStatus}
+                    onChange={(e) => setEnrollmentStatus(e.target.value)}
+                  >
+                    <option value="">Select enrollment status</option>
+                    {ENROLLMENT_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Proof of enrollment" htmlFor="sch-proof">
+                  <input
+                    id="sch-proof"
+                    className="input"
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={onProofChange}
+                  />
+                </Field>
+                {proofFile && (
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                    Selected: {proofFile.name}
+                  </div>
+                )}
+                {existingProofUrl && !proofFile && (
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                    A proof file is already on record. Choosing a new file will replace it.
+                  </div>
+                )}
+                <div style={{ fontSize: 13, color: 'var(--ink-faint)' }}>
+                  Required. Upload a class schedule, enrollment verification letter, or student
+                  account screenshot as an image or PDF.
+                </div>
+              </div>
+            )}
+
+            {/* STEP 4 */}
+            {step === 4 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ fontSize: 14, color: 'var(--ink-soft)' }}>
+                  A guarantor is required for every applicant.
+                </div>
+
+                <div style={rowStyle}>
+                  <div style={nameColStyle}>
+                    <Field label="First name" htmlFor="g-first">
+                      <input
+                        id="g-first"
+                        className="input"
+                        value={guarantor.first_name}
+                        onChange={(e) => updateGuarantor('first_name', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={nameColStyle}>
+                    <Field label="Middle name (optional)" htmlFor="g-middle">
+                      <input
+                        id="g-middle"
+                        className="input"
+                        value={guarantor.middle_name}
+                        onChange={(e) => updateGuarantor('middle_name', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={nameColStyle}>
+                    <Field label="Last name" htmlFor="g-last">
+                      <input
+                        id="g-last"
+                        className="input"
+                        value={guarantor.last_name}
+                        onChange={(e) => updateGuarantor('last_name', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Relationship to applicant" htmlFor="g-rel">
+                      <select
+                        id="g-rel"
+                        className="select"
+                        value={guarantor.relationship}
+                        onChange={(e) => updateGuarantor('relationship', e.target.value)}
+                      >
+                        <option value="">Select a relationship</option>
+                        {RELATIONSHIP_OPTIONS.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+                  {guarantor.relationship === 'Other' && (
+                    <div style={colStyle}>
+                      <Field label="Please describe" htmlFor="g-rel-other">
+                        <input
+                          id="g-rel-other"
+                          className="input"
+                          value={guarantor.relationship_other}
+                          onChange={(e) => updateGuarantor('relationship_other', e.target.value)}
+                          placeholder="e.g. Aunt"
+                        />
+                      </Field>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <SectionTitle>Guarantor address</SectionTitle>
+                  <AddressFields
+                    idPrefix="g-addr"
+                    value={{
+                      address_line1: guarantor.address_line1,
+                      address_line2: guarantor.address_line2,
+                      city: guarantor.city,
+                      state: guarantor.state,
+                      zip: guarantor.zip,
+                    }}
+                    onChange={updateGuarantor}
+                  />
+                </div>
+
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Phone" htmlFor="g-phone">
+                      <input
+                        id="g-phone"
+                        className="input"
+                        value={guarantor.phone}
+                        onChange={(e) => updateGuarantor('phone', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Email" htmlFor="g-email">
+                      <input
+                        id="g-email"
+                        className="input"
+                        type="email"
+                        value={guarantor.email}
+                        onChange={(e) => updateGuarantor('email', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+                <div style={rowStyle}>
+                  <div style={colStyle}>
+                    <Field label="Employer" htmlFor="g-emp">
+                      <input
+                        id="g-emp"
+                        className="input"
+                        value={guarantor.employer}
+                        onChange={(e) => updateGuarantor('employer', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div style={colStyle}>
+                    <Field label="Income" htmlFor="g-inc">
+                      <input
+                        id="g-inc"
+                        className="input"
+                        value={guarantor.income}
+                        onChange={(e) => updateGuarantor('income', e.target.value)}
+                        placeholder="Annual income"
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                <SensitiveBlock>{SENSITIVE_COPY}</SensitiveBlock>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                    The guarantor must print their own full name below to acknowledge their intent
+                    to guarantee this lease. (A legally binding e-signature will be collected in the
+                    live version.)
+                  </div>
+                  <Field label="Guarantor's printed name" htmlFor="g-ack">
+                    <input
+                      id="g-ack"
+                      className="input"
+                      value={guarantor.print_name_ack}
+                      onChange={(e) => updateGuarantor('print_name_ack', e.target.value)}
+                      placeholder="Guarantor full name"
+                    />
+                  </Field>
+                  <div style={{ fontSize: 13, color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)' }}>
+                    Date: {todayLabel()}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 5 */}
+            {step === 5 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ fontSize: 14, color: 'var(--ink-soft)' }}>
+                  List anyone applying to live in the same unit. Each resident signs their own lease.
+                </div>
+                {coApplicants.length === 0 && (
+                  <div style={{ fontSize: 13, color: 'var(--ink-faint)' }}>
+                    No co-applicants added.
+                  </div>
+                )}
+                {coApplicants.map((c, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      border: '1px solid var(--line)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: 14,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 12,
+                    }}
+                  >
+                    <div style={rowStyle}>
+                      <div style={colStyle}>
+                        <Field label="Full name" htmlFor={`ca-name-${i}`}>
+                          <input
+                            id={`ca-name-${i}`}
+                            className="input"
+                            value={c.full_name}
+                            onChange={(e) => updateCoApplicant(i, 'full_name', e.target.value)}
+                          />
+                        </Field>
+                      </div>
+                      <div style={colStyle}>
+                        <Field label="Email (optional)" htmlFor={`ca-email-${i}`}>
+                          <input
+                            id={`ca-email-${i}`}
+                            className="input"
+                            type="email"
+                            value={c.email}
+                            onChange={(e) => updateCoApplicant(i, 'email', e.target.value)}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                    <Field label="Note (optional)" htmlFor={`ca-note-${i}`}>
+                      <input
+                        id={`ca-note-${i}`}
+                        className="input"
+                        value={c.note}
+                        onChange={(e) => updateCoApplicant(i, 'note', e.target.value)}
+                      />
+                    </Field>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <Button variant="ghost" onClick={() => removeCoApplicant(i)}>
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                <div>
+                  <Button variant="ghost" onClick={addCoApplicant}>
+                    + Add another
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 6 */}
+            {step === 6 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <SectionTitle>Personal references</SectionTitle>
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                    Please provide one or two references who are not family members.
+                  </div>
+                  {personalRefs.map((r, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        border: '1px solid var(--line)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: 14,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 12,
+                      }}
+                    >
+                      <div style={rowStyle}>
+                        <div style={colStyle}>
+                          <Field label="Name" htmlFor={`pr-name-${i}`}>
+                            <input
+                              id={`pr-name-${i}`}
+                              className="input"
+                              value={r.name}
+                              onChange={(e) => updatePersonalRef(i, 'name', e.target.value)}
+                            />
+                          </Field>
+                        </div>
+                        <div style={colStyle}>
+                          <Field label="Phone" htmlFor={`pr-phone-${i}`}>
+                            <input
+                              id={`pr-phone-${i}`}
+                              className="input"
+                              value={r.phone}
+                              onChange={(e) => updatePersonalRef(i, 'phone', e.target.value)}
+                            />
+                          </Field>
+                        </div>
+                        <div style={colStyle}>
+                          <Field label="Relationship" htmlFor={`pr-rel-${i}`}>
+                            <input
+                              id={`pr-rel-${i}`}
+                              className="input"
+                              value={r.relationship}
+                              onChange={(e) => updatePersonalRef(i, 'relationship', e.target.value)}
+                            />
+                          </Field>
+                        </div>
+                      </div>
+                      {personalRefs.length > 1 && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                          <Button variant="ghost" onClick={() => removePersonalRef(i)}>
+                            Remove
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {personalRefs.length < 2 && (
+                    <div>
+                      <Button variant="ghost" onClick={addPersonalRef}>
+                        + Add reference
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <SectionTitle>Screening consent</SectionTitle>
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                    Authorization is required to process your application. No checks are run in this
+                    preview.
+                  </div>
+                  <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={consentCredit}
+                      onChange={(e) => setConsentCredit(e.target.checked)}
+                      style={{ marginTop: 3 }}
+                    />
+                    <span style={{ color: 'var(--ink)' }}>Authorize a credit check</span>
+                  </label>
+                  <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={consentCriminal}
+                      onChange={(e) => setConsentCriminal(e.target.checked)}
+                      style={{ marginTop: 3 }}
+                    />
+                    <span style={{ color: 'var(--ink)' }}>Authorize a criminal background check</span>
+                  </label>
+                  <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={consentRentalHistory}
+                      onChange={(e) => setConsentRentalHistory(e.target.checked)}
+                      style={{ marginTop: 3 }}
+                    />
+                    <span style={{ color: 'var(--ink)' }}>
+                      Authorize verification of rental / eviction history
+                    </span>
+                  </label>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <SectionTitle>Acknowledgment</SectionTitle>
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                    By printing your full name below, you confirm that the information in this
+                    application is true and complete, and you agree to the authorizations above.
+                  </div>
+                  <Field label="Print name for acknowledgment" htmlFor="app-ack">
+                    <input
+                      id="app-ack"
+                      className="input"
+                      value={applicantPrintNameAck}
+                      onChange={(e) => setApplicantPrintNameAck(e.target.value)}
+                      placeholder="Your full name"
+                    />
+                  </Field>
+                  <div style={{ fontSize: 13, color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)' }}>
+                    Date: {todayLabel()}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <div
+                style={{
+                  marginTop: 18,
+                  background: 'var(--danger-wash)',
+                  color: 'var(--danger)',
+                  border: '1px solid var(--danger)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '10px 14px',
+                  fontSize: 13,
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            {/* Navigation */}
+            <div
+              style={{
+                marginTop: 24,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+              }}
+            >
+              <div>
+                {step > 1 && (
+                  <Button variant="ghost" onClick={back} disabled={loading}>
+                    Back
+                  </Button>
+                )}
+              </div>
+              <div>
+                {step < 6 ? (
+                  <Button variant="primary" onClick={next}>
+                    Next
+                  </Button>
+                ) : (
+                  <Button variant="primary" onClick={handleSubmit} loading={loading} disabled={loading}>
+                    Submit application
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <div style={{ marginTop: 18, textAlign: 'center', fontSize: 13, color: 'var(--ink-soft)' }}>
+          Already have an account?{' '}
+          <a href="#/login" style={{ color: 'var(--primary)' }}>
+            Sign in
+          </a>
+        </div>
+      </div>
     </div>
   )
 }
