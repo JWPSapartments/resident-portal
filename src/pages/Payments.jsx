@@ -140,7 +140,7 @@ export default function Payments() {
       setPaying(false)
       return
     }
-    setPaymentSuccess({ confirmation: data, amount: parsedAmount })
+    setPaymentSuccess({ confirmation: data.confirmation_code, amount: parsedAmount })
     await loadData()
     setPaying(false)
   }
