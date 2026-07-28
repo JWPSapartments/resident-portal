@@ -17,6 +17,69 @@ const d = (x) => {
   }
 }
 
+// ---- unit label maps -------------------------------------------------------
+
+const BUILDING_LABELS = {
+  '1240_arthur': '1240 W Arthur Ave',
+  '1243_arthur': '1243 W Arthur Ave',
+  '6419_wayne': '6419 N Wayne Ave',
+}
+
+const FLOOR_LABELS = {
+  garden: 'Garden Floor',
+  first: 'First Floor',
+  second: 'Second Floor',
+}
+
+const buildingLabel = (b) => (b ? BUILDING_LABELS[b] || b : null)
+const floorLabel = (f) => (f ? FLOOR_LABELS[f] || f : null)
+const roomLabel = (r) => (r ? `Room ${r}` : null)
+
+// full: "1240 W Arthur Ave · First Floor · Room B"
+function desiredUnitFull(app) {
+  if (!app) return '—'
+  const parts = [
+    buildingLabel(app.desired_building),
+    floorLabel(app.desired_floor),
+    roomLabel(app.desired_room),
+  ].filter(Boolean)
+  return parts.length ? parts.join(' · ') : '—'
+}
+
+// short (list rows): "1240 W Arthur Ave · Room B"
+function desiredUnitShort(app) {
+  if (!app) return '—'
+  const parts = [buildingLabel(app.desired_building), roomLabel(app.desired_room)].filter(Boolean)
+  return parts.length ? parts.join(' · ') : '—'
+}
+
+// ---- name / address composition -------------------------------------------
+
+function composeName(src) {
+  if (!src) return '—'
+  const parts = [src.first_name, src.middle_name, src.last_name]
+    .map((p) => (typeof p === 'string' ? p.trim() : p))
+    .filter(Boolean)
+  return parts.length ? parts.join(' ') : '—'
+}
+
+function composeAddress(src) {
+  if (!src) return '—'
+  const line1 = [src.address_line1, src.address_line2]
+    .map((p) => (typeof p === 'string' ? p.trim() : p))
+    .filter(Boolean)
+    .join(', ')
+  const cityState = [src.city, src.state]
+    .map((p) => (typeof p === 'string' ? p.trim() : p))
+    .filter(Boolean)
+    .join(', ')
+  const tail = [cityState, src.zip ? String(src.zip).trim() : '']
+    .filter(Boolean)
+    .join(' ')
+  const out = [line1, tail].filter(Boolean).join(' · ')
+  return out || '—'
+}
+
 function statusPill(status) {
   if (status === 'approved') return <StatusPill kind="completed" label="Approved" />
   if (status === 'declined') return <StatusPill kind="overdue" label="Declined" />
@@ -82,7 +145,6 @@ function Detail({ app }) {
   const g = app.guarantor || null
   const co = Array.isArray(app.co_applicants) ? app.co_applicants : []
   const refs = app.references || {}
-  const pl = refs.previous_landlord || null
   const personal = Array.isArray(refs.personal) ? refs.personal : []
 
   return (
@@ -119,14 +181,12 @@ function Detail({ app }) {
       )}
 
       <Section title="Applicant">
-        <Row label="Full legal name">{v(app.full_legal_name)}</Row>
+        <Row label="Full legal name">{composeName(app)}</Row>
         <Row label="Date of birth">{d(app.date_of_birth)}</Row>
         <Row label="Email">{v(app.email)}</Row>
         <Row label="Phone">{v(app.phone)}</Row>
-        <Row label="Current address">{v(app.current_address)}</Row>
-        <Row label="Desired unit / room">
-          {v(app.desired_unit_label)} · Room {v(app.desired_room_label)}
-        </Row>
+        <Row label="Address">{composeAddress(app)}</Row>
+        <Row label="Desired unit / room">{desiredUnitFull(app)}</Row>
         <Row label="Submitted">{d(app.submitted_at)}</Row>
         <div
           style={{
@@ -136,14 +196,18 @@ function Detail({ app }) {
             marginTop: 8,
           }}
         >
-          SSN / driver's license: Collected during screening — not stored in this portal.
+          SSN / ID collected through screening partner — not stored in this portal.
         </div>
+      </Section>
+
+      <Section title="Applicant acknowledgment">
+        <Row label="Printed name">{v(app.applicant_print_name_ack)}</Row>
+        <Row label="Acknowledged on">{d(app.applicant_ack_date)}</Row>
       </Section>
 
       <Section title="Residency history">
         {rh ? (
           <>
-            <Row label="Current address">{v(rh.current_address)}</Row>
             <Row label="Landlord name">{v(rh.landlord_name)}</Row>
             <Row label="Landlord phone">{v(rh.landlord_phone)}</Row>
             <Row label="Monthly rent">{v(rh.monthly_rent)}</Row>
@@ -172,15 +236,15 @@ function Detail({ app }) {
         <Row label="Guarantor required">{app.guarantor_required ? 'Yes' : 'No'}</Row>
         {g ? (
           <>
-            <Row label="Name">{v(g.name)}</Row>
+            <Row label="Name">{composeName(g)}</Row>
             <Row label="Relationship">{v(g.relationship)}</Row>
-            <Row label="Address">{v(g.address)}</Row>
+            <Row label="Address">{composeAddress(g)}</Row>
             <Row label="Phone">{v(g.phone)}</Row>
             <Row label="Email">{v(g.email)}</Row>
             <Row label="Employer">{v(g.employer)}</Row>
             <Row label="Income">{v(g.income)}</Row>
-            <Row label="Typed name acknowledgment">{v(g.typed_name_ack)}</Row>
-            <Row label="Acknowledged at">{d(g.ack_at)}</Row>
+            <Row label="Printed name">{v(g.print_name_ack)}</Row>
+            <Row label="Acknowledged on">{d(g.ack_date)}</Row>
           </>
         ) : (
           <div style={{ color: 'var(--ink-faint)' }}>No guarantor on file.</div>
@@ -210,17 +274,6 @@ function Detail({ app }) {
 
       <Section title="References">
         <div style={{ color: 'var(--ink-soft)', fontSize: 13, marginBottom: 4 }}>
-          Previous landlord
-        </div>
-        {pl ? (
-          <>
-            <Row label="Name">{v(pl.name)}</Row>
-            <Row label="Phone">{v(pl.phone)}</Row>
-          </>
-        ) : (
-          <div style={{ color: 'var(--ink-faint)' }}>None listed</div>
-        )}
-        <div style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '12px 0 4px' }}>
           Personal references
         </div>
         {personal.length > 0 ? (
@@ -499,12 +552,12 @@ export default function Applications() {
                           }}
                         >
                           <div style={{ fontWeight: 600, color: 'var(--ink)' }}>
-                            {v(a.full_legal_name)}
+                            {composeName(a)}
                           </div>
                           {statusPill(a.status)}
                         </div>
                         <div style={{ color: 'var(--ink-soft)', fontSize: 13, marginTop: 4 }}>
-                          {v(a.desired_unit_label)} · Room {v(a.desired_room_label)}
+                          {desiredUnitShort(a)}
                         </div>
                         <div style={{ color: 'var(--ink-faint)', fontSize: 12, marginTop: 2 }}>
                           {d(a.submitted_at)}
@@ -528,7 +581,7 @@ export default function Applications() {
                 ) : (
                   <>
                     <CardHead
-                      title={v(selected.full_legal_name)}
+                      title={composeName(selected)}
                       action={statusPill(selected.status)}
                     />
 
