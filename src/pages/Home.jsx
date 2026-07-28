@@ -15,6 +15,32 @@ const STATUS_LABEL = {
   completed: 'Completed',
 }
 
+// Address code → human-readable label. Profiles store building/floor as codes.
+const BUILDING_LABELS = {
+  '1240_arthur': '1240 W Arthur Ave',
+  '1243_arthur': '1243 W Arthur Ave',
+  '6419_wayne': '6419 N Wayne Ave',
+}
+
+const FLOOR_LABELS = {
+  garden: 'Garden Floor',
+  first: 'First Floor',
+  second: 'Second Floor',
+}
+
+// '1240 W Arthur Ave · First Floor · Room B' — any missing part is skipped
+// rather than rendering an empty separator or a raw code.
+function formatAddress(profile) {
+  if (!profile) return ''
+  const parts = []
+  const building = BUILDING_LABELS[profile.building]
+  const floor = FLOOR_LABELS[profile.floor]
+  if (building) parts.push(building)
+  if (floor) parts.push(floor)
+  if (profile.room_label) parts.push(`Room ${profile.room_label}`)
+  return parts.join(' · ')
+}
+
 // Sum a numeric column across a row array, tolerating null/undefined.
 function sumBy(rows, key) {
   return (rows || []).reduce((total, row) => total + Number(row[key] || 0), 0)
@@ -28,11 +54,11 @@ function monthNameFromDate(dateStr) {
   return new Date(y, m - 1, 1).toLocaleString('en-US', { month: 'long' })
 }
 
-function KeyValueRow({ label, value }) {
+function KeyValueRow({ label, value, valueColor }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
-      <span style={{ color: 'var(--ink-faint)' }}>{label}</span>
-      <span>{value}</span>
+      <span style={{ color: 'var(--ink-faint)', flexShrink: 0 }}>{label}</span>
+      <span style={{ color: valueColor, textAlign: 'right' }}>{value}</span>
     </div>
   )
 }
@@ -172,8 +198,17 @@ export default function Home() {
     }
   })()
 
-  const firstName = (profile?.full_name || '').split(' ')[0]
+  const firstName = profile?.first_name || ''
   const greeting = firstName ? `Welcome back, ${firstName}` : 'Welcome back'
+  const addressLine = formatAddress(profile)
+
+  // Lease signature status — Phase 1 always resolves to 'unsigned', but the
+  // display is driven by the column value, not hard-coded.
+  const isSigned = lease?.signature_status === 'signed'
+  const signatureValue = isSigned
+    ? 'Signed'
+    : 'Not yet signed — e-signing coming in the live version'
+  const signatureColor = isSigned ? 'var(--success)' : 'var(--ink-faint)'
 
   // ── Loading / error guards (never white-screen) ───────────────────────────
   if (loading) {
@@ -210,10 +245,7 @@ export default function Home() {
 
   return (
     <>
-      <PageHead
-        title={greeting}
-        subtitle={`${profile?.unit_label} · Room ${profile?.room_label}`}
-      />
+      <PageHead title={greeting} subtitle={addressLine} />
 
       {/* Rent status — date-based summary, pinned to the top */}
       <div style={{ marginBottom: '20px' }}>
@@ -297,6 +329,11 @@ export default function Home() {
                   <KeyValueRow
                     label="Lease term"
                     value={`${formatDate(lease.start_date)} – ${formatDate(lease.end_date)}`}
+                  />
+                  <KeyValueRow
+                    label="Lease signing"
+                    value={signatureValue}
+                    valueColor={signatureColor}
                   />
                 </div>
               ) : (
