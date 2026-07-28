@@ -1,7 +1,9 @@
 -- =====================================================================
 -- JWPS Apartments — Resident Portal
 -- supabase/schema.sql  (Phase 1 — full rebuild, idempotent, re-runnable)
--- Revision: T0-R2 (applicant acknowledgment columns; flat rent 825 / utilities 45)
+-- Revision: T0-R2  (applicant acknowledgment columns; flat rent 825 / utilities 45)
+-- Revision: T0-R2b (drop pre-R1 orphan function overloads)
+-- Revision: T0-R2c (rebuild resubmit_application(uuid, jsonb) on R1/R2 columns)
 --
 -- Paste this entire file into the Supabase SQL Editor and run once.
 -- WARNING: drops and recreates every public table. All data is lost.
@@ -31,7 +33,16 @@ drop table if exists public.applications          cascade;
 drop table if exists public.profiles              cascade;
 
 -- 1c. functions
+-- Orphan overloads from the pre-R1 schema. R1's drop list omitted them, so
+-- they survived the rebuild while pointing at columns that no longer exist.
+-- The record_payment(uuid, numeric) orphan in particular made every 2-arg
+-- call ambiguous ("function is not unique") and broke the payments flow.
+drop function if exists public.record_payment(uuid, numeric)            cascade;
+drop function if exists public.is_admin(uuid)                           cascade;
+drop function if exists public.seed_test_application(text)              cascade;
+
 drop function if exists public.approve_application(uuid)                cascade;
+drop function if exists public.resubmit_application(uuid, jsonb)        cascade;
 drop function if exists public.decline_application(uuid, text)          cascade;
 drop function if exists public.resubmit_application(uuid)               cascade;
 drop function if exists public.record_payment(uuid, numeric, text)      cascade;
@@ -777,6 +788,130 @@ begin
 end;
 $$;
 
+-- 5.9 resubmit_application (jsonb payload) -----------------------------
+--     Rebuilt in T0-R2c. The pre-R1 version referenced full_legal_name /
+--     current_address / desired_unit_label and could never succeed.
+--     Signature and return type match the removed version, so the frontend
+--     needs no change.
+create or replace function public.resubmit_application(
+  p_application_id uuid,
+  p_payload        jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_app public.applications%rowtype;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  select * into v_app
+  from public.applications
+  where id = p_application_id
+  for update;
+
+  if not found then
+    raise exception 'application not found';
+  end if;
+
+  if v_app.user_id <> auth.uid() and not public.is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  if v_app.status <> 'declined' then
+    raise exception 'only a declined application can be resubmitted (status: %)', v_app.status;
+  end if;
+
+  -- guard the partial unique index applications_one_pending_per_user
+  if exists (
+    select 1 from public.applications
+    where user_id = v_app.user_id
+      and status  = 'pending'
+      and id     <> v_app.id
+  ) then
+    raise exception 'a pending application already exists for this user';
+  end if;
+
+  update public.applications set
+    -- name (3 columns)
+    first_name   = coalesce(p_payload->>'first_name',  first_name),
+    middle_name  = case when p_payload ? 'middle_name'
+                        then nullif(p_payload->>'middle_name', '')
+                        else middle_name end,
+    last_name    = coalesce(p_payload->>'last_name',   last_name),
+
+    -- current address (5 columns)
+    address_line1 = coalesce(p_payload->>'address_line1', address_line1),
+    address_line2 = case when p_payload ? 'address_line2'
+                         then nullif(p_payload->>'address_line2', '')
+                         else address_line2 end,
+    city          = coalesce(p_payload->>'city',  city),
+    state         = coalesce(p_payload->>'state', state),
+    zip           = coalesce(p_payload->>'zip',   zip),
+
+    phone         = coalesce(p_payload->>'phone', phone),
+    email         = coalesce(p_payload->>'email', email),
+    date_of_birth = coalesce(nullif(p_payload->>'date_of_birth', '')::date, date_of_birth),
+
+    -- desired unit (3-level address)
+    desired_building = coalesce(
+      nullif(p_payload->>'desired_building', '')::public.building_code, desired_building),
+    desired_floor    = coalesce(
+      nullif(p_payload->>'desired_floor', '')::public.floor_code, desired_floor),
+    desired_room     = coalesce(
+      nullif(p_payload->>'desired_room', '')::public.room_label, desired_room),
+
+    residency_history = coalesce(p_payload->'residency_history', residency_history),
+
+    school_name             = coalesce(p_payload->>'school_name',             school_name),
+    student_id              = coalesce(p_payload->>'student_id',              student_id),
+    class_standing          = coalesce(p_payload->>'class_standing',          class_standing),
+    expected_graduation     = coalesce(p_payload->>'expected_graduation',     expected_graduation),
+    enrollment_status       = coalesce(p_payload->>'enrollment_status',       enrollment_status),
+    proof_of_enrollment_url = coalesce(p_payload->>'proof_of_enrollment_url', proof_of_enrollment_url),
+
+    -- guarantor: strip guarantor_ssn so applications_no_sensitive_pii holds
+    guarantor = case when p_payload ? 'guarantor'
+                     then (p_payload->'guarantor') - 'guarantor_ssn'
+                     else guarantor end,
+    guarantor_required = coalesce((p_payload->>'guarantor_required')::boolean, guarantor_required),
+
+    co_applicants = coalesce(p_payload->'co_applicants', co_applicants),
+    "references"  = coalesce(p_payload->'references',    "references"),
+
+    consent_credit         = coalesce((p_payload->>'consent_credit')::boolean,         consent_credit),
+    consent_criminal       = coalesce((p_payload->>'consent_criminal')::boolean,       consent_criminal),
+    consent_rental_history = coalesce((p_payload->>'consent_rental_history')::boolean, consent_rental_history),
+    consent_at             = now(),
+
+    -- T0-R2 applicant acknowledgment
+    applicant_print_name_ack = coalesce(p_payload->>'applicant_print_name_ack', applicant_print_name_ack),
+    applicant_ack_date       = coalesce(
+      nullif(p_payload->>'applicant_ack_date', '')::date, applicant_ack_date),
+
+    -- sensitive PII stays null in Phase 1 (enforced by CHECK as well)
+    ssn_or_itin     = null,
+    drivers_license = null,
+
+    -- resubmission state
+    status       = 'pending',
+    decline_note = null,
+    reviewed_at  = null,
+    reviewed_by  = null,
+    submitted_at = now()
+  where id = p_application_id;
+
+  update public.profiles
+     set status = 'pending'
+   where id = v_app.user_id
+     and status = 'declined';
+end;
+$$;
+
 -- ---------------------------------------------------------------------
 -- 6. ROW LEVEL SECURITY
 -- ---------------------------------------------------------------------
@@ -971,6 +1106,7 @@ revoke all on function public.record_payment(uuid, numeric, text) from public;
 revoke all on function public.approve_application(uuid)           from public;
 revoke all on function public.decline_application(uuid, text)     from public;
 revoke all on function public.resubmit_application(uuid)          from public;
+revoke all on function public.resubmit_application(uuid, jsonb)   from public;
 
 grant execute on function public.is_admin()                          to authenticated;
 grant execute on function public.next_maintenance_number()           to authenticated;
@@ -979,6 +1115,7 @@ grant execute on function public.record_payment(uuid, numeric, text) to authenti
 grant execute on function public.approve_application(uuid)           to authenticated;
 grant execute on function public.decline_application(uuid, text)     to authenticated;
 grant execute on function public.resubmit_application(uuid)          to authenticated;
+grant execute on function public.resubmit_application(uuid, jsonb)   to authenticated;
 
 -- =====================================================================
 -- END OF schema.sql
