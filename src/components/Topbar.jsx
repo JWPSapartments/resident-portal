@@ -1,17 +1,18 @@
 import { useAuth } from '../context/AuthContext'
 import NotificationBell from './NotificationBell'
 import { BRAND } from '../lib/brand'
+import { addressParts } from '../lib/format'
 
 export default function Topbar() {
   const { profile } = useAuth()
 
-  const unit = profile?.unit_label
-  const room = profile?.room_label
-  const placeParts = [BRAND.name]
-  if (unit) placeParts.push(unit)
-  if (room) placeParts.push(room)
+  // Breadcrumb reads as the resident's address: building / floor / room.
+  // Admins have no unit, so fall back to the brand name.
+  const parts = addressParts(profile)
+  const placeParts = parts.length ? parts : [BRAND.name]
 
-  const initials = (profile?.full_name || '')
+  const fullName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ')
+  const initials = fullName
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
@@ -31,7 +32,7 @@ export default function Topbar() {
 
       <div className="topbar-right">
         <NotificationBell />
-        <div className="account-chip" title={profile?.full_name || ''}>
+        <div className="account-chip" title={fullName}>
           <span className="account-initials">{initials || '·'}</span>
         </div>
       </div>
