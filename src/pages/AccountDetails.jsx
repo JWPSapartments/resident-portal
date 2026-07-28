@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { PageHead, Card, CardHead, Field, Button, StatusPill } from '../components/ui'
+import { formatAddress } from '../lib/format'
 
 function ReadOnlyRow({ label, value }) {
   return (
@@ -135,13 +136,14 @@ export default function AccountDetails() {
     setPrefsMsg({ type: 'ok', text: 'Saved.' })
   }
 
-  const residence =
-    [
-      profile.unit_label || null,
-      profile.room_label ? `Room ${profile.room_label}` : null,
-    ]
-      .filter(Boolean)
-      .join(' · ') || '—'
+  // Name is stored as three columns now; middle name is optional.
+  const fullName = [profile.first_name, profile.middle_name, profile.last_name]
+    .filter(Boolean)
+    .join(' ')
+
+  // building / floor are codes in the DB — render them as readable labels.
+  // Missing parts are dropped rather than shown as blanks.
+  const residence = formatAddress(profile)
 
   return (
     <>
@@ -154,7 +156,7 @@ export default function AccountDetails() {
           <div className="card-pad">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 32px' }}>
               <div style={{ flex: '1 1 220px' }}>
-                <ReadOnlyRow label="Full name" value={profile.full_name} />
+                <ReadOnlyRow label="Full name" value={fullName} />
                 <ReadOnlyRow label="Email" value={profile.email} />
                 <ReadOnlyRow label="Residence" value={residence} />
               </div>
